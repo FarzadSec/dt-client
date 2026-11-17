@@ -1,6 +1,6 @@
 // The panel's app API (Manifold, <subscription link>/app/v1).
 export interface AppLocation {
-  nodeId: number;
+  id: number;
   name: string;
   countryCode: string;
   city: string;

@@ -8,10 +8,10 @@ const vless = { protocol: 'vless', outbound: { protocol: 'vless' } };
 const profile: AppProfile = {
   account: { username: 'dana', enabled: true, expiryTime: 0, upload: 0, download: 0, total: 0, deviceLimit: 0, devices: 0 },
   locations: [
-    { nodeId: 0, name: 'Frankfurt 1', countryCode: 'de', city: 'Frankfurt', timezone: '' },
-    { nodeId: 1, name: '', countryCode: 'DE', city: 'Berlin', timezone: '' },
-    { nodeId: 2, name: 'Amsterdam', countryCode: 'NL', city: 'Amsterdam', timezone: '' },
-    { nodeId: 3, name: 'TUIC only', countryCode: 'FI', city: 'Helsinki', timezone: '' },
+    { id: 0, name: 'Frankfurt 1', countryCode: 'de', city: 'Frankfurt', timezone: '' },
+    { id: 1, name: '', countryCode: 'DE', city: 'Berlin', timezone: '' },
+    { id: 2, name: 'Amsterdam', countryCode: 'NL', city: 'Amsterdam', timezone: '' },
+    { id: 3, name: 'TUIC only', countryCode: 'FI', city: 'Helsinki', timezone: '' },
   ],
   configs: [
     { ...vless, name: 'a', link: 'vless://a', locationId: 0 },
@@ -29,7 +29,7 @@ const pings = [
 describe('groupLocations', () => {
   it('groups by country, quickest country and server first, leaving out what the app cannot run', () => {
     const groups = groupLocations(profile, pings, 'all', '', 'en');
-    expect(groups.map((g) => [g.code, g.name, g.items.map((i) => i.location.nodeId)])).toEqual([
+    expect(groups.map((g) => [g.code, g.name, g.items.map((i) => i.location.id)])).toEqual([
       ['NL', 'The Netherlands', [2]],
       ['DE', 'Germany', [1, 0]],
     ]);
@@ -38,7 +38,7 @@ describe('groupLocations', () => {
   it('keeps to a protocol and finds countries by either language', () => {
     expect(groupLocations(profile, pings, 'openvpn', '', 'en').map((g) => g.code)).toEqual(['NL']);
     expect(groupLocations(profile, pings, 'all', 'آلمان', 'en').map((g) => g.code)).toEqual(['DE']);
-    expect(groupLocations(profile, pings, 'all', 'berlin', 'fa')[0].items.map((i) => i.location.nodeId)).toEqual([1]);
+    expect(groupLocations(profile, pings, 'all', 'berlin', 'fa')[0].items.map((i) => i.location.id)).toEqual([1]);
   });
 });
 

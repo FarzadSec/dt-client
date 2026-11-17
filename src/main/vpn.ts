@@ -265,7 +265,7 @@ export class Vpn extends EventEmitter {
 
   private async applyPrivacy(profile: AppProfile, settings: Settings, locationId: number | null): Promise<void> {
     if (settings.webrtcProtection) this.webrtcBackup = await protectWebrtc();
-    const timezone = profile.locations.find((l) => l.nodeId === locationId)?.timezone;
+    const timezone = profile.locations.find((l) => l.id === locationId)?.timezone;
     if (settings.timezoneSpoof && timezone) this.zoneBackup = await applyZone(timezone);
   }
 

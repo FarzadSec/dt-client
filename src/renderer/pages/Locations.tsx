@@ -39,7 +39,7 @@ export function Locations({ t, lang, profile, pings, status, selected, query, on
   const activeId = status.state === 'disconnected' ? null : (status.serverId ?? null);
 
   const serverRow = (item: LocationItem, nested: boolean) => {
-    const id = item.location.nodeId;
+    const id = item.location.id;
     const active = activeId === id;
     const label = locationLabel(item.location, lang);
     return (

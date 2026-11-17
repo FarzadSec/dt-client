@@ -45,18 +45,18 @@ export function Home(props: Props) {
   const now = useNow(connected);
 
   const usable = useMemo(() => new Set(usableLocationIds(profile)), [profile]);
-  const byId = useMemo(() => new Map(profile.locations.map((l) => [l.nodeId, l])), [profile]);
+  const byId = useMemo(() => new Map(profile.locations.map((l) => [l.id, l])), [profile]);
   const shownId = status.state === 'disconnected' && !status.blocking ? settings.locationId : (status.serverId ?? status.locationId ?? null);
   const shown: AppLocation | undefined = shownId === null ? undefined : byId.get(shownId);
 
   const markers = useMemo(() => {
     const out: MapMarker[] = [];
     for (const l of profile.locations) {
-      if (!usable.has(l.nodeId)) continue;
+      if (!usable.has(l.id)) continue;
       const p = countryPoint(l.countryCode);
       if (!p) continue;
-      const kind = connected && l.nodeId === shownId ? 'connected' : l.nodeId === shownId ? 'selected' : 'server';
-      out.push({ key: String(l.nodeId), x: p.x, y: p.y, kind });
+      const kind = connected && l.id === shownId ? 'connected' : l.id === shownId ? 'selected' : 'server';
+      out.push({ key: String(l.id), x: p.x, y: p.y, kind });
     }
     return out;
   }, [profile, usable, connected, shownId]);
@@ -139,7 +139,7 @@ export function Home(props: Props) {
 
 function Recents({ t, lang, profile, pings, activity, onConnect, onAllLocations, byId, usable }: Props & { byId: Map<number, AppLocation>; usable: Set<number> }) {
   const recent = activity.recents.filter((id): id is number => id !== null && usable.has(id) && byId.has(id));
-  const suggested = groupLocations(profile, pings, 'all', '', lang).flatMap((g) => g.items.map((i) => i.location.nodeId));
+  const suggested = groupLocations(profile, pings, 'all', '', lang).flatMap((g) => g.items.map((i) => i.location.id));
   const ids = [...new Set([...recent, ...suggested])].slice(0, 6);
   if (ids.length === 0) return null;
   return (

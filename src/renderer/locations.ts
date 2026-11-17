@@ -26,7 +26,7 @@ function kind(config: AppConfig): ProtocolFilter | null {
 export function locationLabel(location: AppLocation, lang: Language): string {
   if (location.name) return location.name;
   if (location.countryCode) return countryName(location.countryCode, lang);
-  return `#${location.nodeId}`;
+  return `#${location.id}`;
 }
 
 // Locations the app can run, by country, filtered by protocol and search; quickest first.
@@ -34,7 +34,7 @@ export function groupLocations(profile: AppProfile, pings: PingResult[], filter:
   const q = query.trim().toLowerCase();
   const groups = new Map<string, CountryGroup>();
   for (const location of profile.locations) {
-    const configs = profile.configs.filter((c) => c.locationId === location.nodeId);
+    const configs = profile.configs.filter((c) => c.locationId === location.id);
     const protocols = [...new Set(configs.map(kind).filter((k): k is ProtocolFilter => k !== null))];
     if (protocols.length === 0 || (filter !== 'all' && !protocols.includes(filter))) continue;
     const code = location.countryCode.toUpperCase();
@@ -42,7 +42,7 @@ export function groupLocations(profile: AppProfile, pings: PingResult[], filter:
     const haystack = [name, code ? countryName(code, lang === 'fa' ? 'en' : 'fa') : '', location.name, location.city].join(' ').toLowerCase();
     if (q && !haystack.includes(q)) continue;
     const group = groups.get(code) ?? { code, name, items: [] };
-    group.items.push({ location, ping: bestPing(profile, pings, location.nodeId), protocols });
+    group.items.push({ location, ping: bestPing(profile, pings, location.id), protocols });
     groups.set(code, group);
   }
   const quickest = (items: LocationItem[]) => Math.min(...items.map((i) => i.ping ?? Infinity));
