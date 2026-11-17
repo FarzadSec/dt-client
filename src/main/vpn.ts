@@ -8,7 +8,7 @@ import { candidates, type Candidate } from './candidates';
 import { addConnectionScript, l2tpAccount, l2tpConnectionName } from './configs/l2tp';
 import { openvpnArgs, openvpnProfile } from './configs/openvpn';
 import { singboxTunConfig } from './configs/singbox';
-import { xrayConfig } from './configs/xray';
+import { dnsServers, xrayConfig } from './configs/xray';
 import { EngineProcess, waitForLine } from './engines/process';
 import { freePort, probeThroughProxy, waitForPort } from './health';
 import { allowL2tpBehindNat } from './system/l2tpNat';
@@ -54,7 +54,9 @@ class XrayConnection implements Connection {
     const httpPort = await freePort();
     const xrayFile = path.join(this.paths.work, 'xray.json');
     const outbound = this.candidate.config.outbound ?? {};
-    writePrivate(xrayFile, JSON.stringify(xrayConfig(outbound, { socksPort, httpPort, iranDirect: this.settings.iranDirect }), null, 2));
+    const dns = dnsServers(this.settings.dns);
+    const cfg = xrayConfig(outbound, { socksPort, httpPort, iranDirect: this.settings.iranDirect, adBlock: this.settings.adBlock, dns });
+    writePrivate(xrayFile, JSON.stringify(cfg, null, 2));
     const xray = new EngineProcess('xray', path.join(this.paths.bin, 'xray.exe'), ['run', '-c', xrayFile], path.join(this.paths.work, 'xray.log'), this.paths.bin);
     this.xray = xray;
     xray.start();
@@ -64,7 +66,8 @@ class XrayConnection implements Connection {
     }
 
     const tunFile = path.join(this.paths.work, 'tun.json');
-    writePrivate(tunFile, JSON.stringify(singboxTunConfig({ socksPort, strictRoute: this.settings.killSwitch }), null, 2));
+    const bypassApps = this.settings.splitTunneling ? this.settings.splitApps.map((a) => a.name) : [];
+    writePrivate(tunFile, JSON.stringify(singboxTunConfig({ socksPort, strictRoute: this.settings.killSwitch, dns: dns[0], bypassApps }), null, 2));
     const tun = new EngineProcess(
       'sing-box',
       path.join(this.paths.bin, 'sing-box.exe'),
@@ -218,7 +221,8 @@ export class Vpn extends EventEmitter {
     let notice: string | undefined;
     for (const candidate of list) {
       if (this.current.state !== 'connecting') return this.current;
-      this.set({ state: 'connecting', locationId, configName: candidate.config.name, protocol: candidate.config.protocol });
+      const serverId = candidate.config.locationId ?? null;
+      this.set({ state: 'connecting', locationId, serverId, configName: candidate.config.name, protocol: candidate.config.protocol });
       const connection = this.connectionFor(candidate, settings);
       let ok = false;
       try {
@@ -238,6 +242,7 @@ export class Vpn extends EventEmitter {
       return this.set({
         state: 'connected',
         locationId,
+        serverId,
         configName: candidate.config.name,
         protocol: candidate.config.protocol,
         since: Date.now(),

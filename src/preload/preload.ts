@@ -19,6 +19,9 @@ const api: DtApi = {
   disconnect: () => invoke('disconnect'),
   status: () => invoke('status'),
   ping: () => invoke('ping'),
+  activity: () => invoke('activity'),
+  pickApp: () => invoke('pickApp'),
+  appIcon: (file) => invoke('appIcon', file),
   openExternal: (url) => invoke('openExternal', url),
   onStatus: (listener) => {
     const wrapped = (_event: IpcRendererEvent, status: Status) => listener(status);

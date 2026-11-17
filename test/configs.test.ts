@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { xrayConfig } from '../src/main/configs/xray';
+import { dnsServers, xrayConfig } from '../src/main/configs/xray';
 import { runsOnXray } from '../src/shared/engines';
 import { singboxTunConfig } from '../src/main/configs/singbox';
 
@@ -37,6 +37,21 @@ describe('xrayConfig', () => {
     expect(direct).toContain('geosite:category-ir');
   });
 
+  it('blocks ads before anything else when asked', () => {
+    const cfg = xrayConfig(vless, { socksPort: 1, httpPort: 2, iranDirect: true, adBlock: true }) as { routing: { rules: { outboundTag: string; domain?: string[] }[] } };
+    expect(cfg.routing.rules[0]).toEqual({ type: 'field', domain: ['geosite:category-ads-all'], outboundTag: 'block' });
+    const off = xrayConfig(vless, { socksPort: 1, httpPort: 2, iranDirect: true }) as { routing: { rules: { outboundTag: string }[] } };
+    expect(off.routing.rules.some((r) => r.outboundTag === 'block')).toBe(false);
+  });
+
+  it('resolves through the DNS servers the user set', () => {
+    expect(dnsServers(' 9.9.9.9, 149.112.112.112 ')).toEqual(['9.9.9.9', '149.112.112.112']);
+    expect(dnsServers('')).toEqual(['1.1.1.1', '8.8.8.8']);
+    expect(dnsServers('dns.example; rm -rf')).toEqual(['1.1.1.1', '8.8.8.8']);
+    const cfg = xrayConfig(vless, { socksPort: 1, httpPort: 2, iranDirect: false, dns: ['9.9.9.9'] }) as { dns: { servers: string[] } };
+    expect(cfg.dns.servers).toEqual(['9.9.9.9']);
+  });
+
   it('knows which entries Xray runs', () => {
     expect(runsOnXray('vless', vless)).toBe(true);
     expect(runsOnXray('wireguard', { protocol: 'wireguard' })).toBe(true);
@@ -56,6 +71,15 @@ describe('singboxTunConfig', () => {
     expect(cfg.outbounds.find((o) => o.tag === 'proxy')?.server_port).toBe(20808);
     expect(cfg.route.final).toBe('proxy');
     expect(cfg.route.rules).toContainEqual({ process_name: ['xray.exe', 'sing-box.exe'], outbound: 'direct' });
+  });
+
+  it('lets the apps chosen for split tunneling and the user DNS through', () => {
+    const cfg = singboxTunConfig({ socksPort: 1, strictRoute: true, dns: '9.9.9.9', bypassApps: ['steam.exe'] }) as {
+      dns: { servers: { tag: string; server?: string }[] };
+      route: { rules: Record<string, unknown>[] };
+    };
+    expect(cfg.route.rules).toContainEqual({ process_name: ['xray.exe', 'sing-box.exe', 'steam.exe'], outbound: 'direct' });
+    expect(cfg.dns.servers.find((s) => s.tag === 'remote')?.server).toBe('9.9.9.9');
   });
 
   it('lets traffic out when the kill switch is off', () => {

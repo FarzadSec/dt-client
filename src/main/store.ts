@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { defaultSettings, type AppProfile, type Settings } from '../shared/types';
+import { defaultSettings, type Activity, type AppProfile, type Settings } from '../shared/types';
 
 export interface Sealer {
   encrypt(text: string): string;
@@ -15,6 +15,7 @@ interface StateFile {
   profile?: string;
   deviceIdFallback?: string;
   settings?: Partial<Settings>;
+  activity?: Activity;
 }
 
 // The token and the profile carry credentials, so they are stored sealed (DPAPI on Windows).
@@ -79,6 +80,15 @@ export class Store {
 
   saveProfile(profile: AppProfile): void {
     this.state.profile = this.sealer.encrypt(JSON.stringify(profile));
+    this.save();
+  }
+
+  activity(): Activity {
+    return { days: {}, recents: [], ...this.state.activity };
+  }
+
+  saveActivity(activity: Activity): void {
+    this.state.activity = activity;
     this.save();
   }
 

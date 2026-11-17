@@ -24,7 +24,7 @@ const outbounds: Record<string, Record<string, unknown>> = {
   },
 };
 for (const [name, outbound] of Object.entries(outbounds)) {
-  fs.writeFileSync(path.join(out, `xray-${name}.json`), JSON.stringify(xrayConfig(outbound, { socksPort: 20808, httpPort: 20809, iranDirect: true }), null, 2));
+  fs.writeFileSync(path.join(out, `xray-${name}.json`), JSON.stringify(xrayConfig(outbound, { socksPort: 20808, httpPort: 20809, iranDirect: true, adBlock: true, dns: ['9.9.9.9'] }), null, 2));
 }
-fs.writeFileSync(path.join(out, 'tun.json'), JSON.stringify(singboxTunConfig({ socksPort: 20808, strictRoute: true }), null, 2));
+fs.writeFileSync(path.join(out, 'tun.json'), JSON.stringify(singboxTunConfig({ socksPort: 20808, strictRoute: true, dns: '9.9.9.9', bypassApps: ['steam.exe'] }), null, 2));
 console.log(`wrote configs to ${out}`);

@@ -3,4 +3,9 @@ declare module '*.svg' {
   export default url;
 }
 
+declare module '*.svg?raw' {
+  const text: string;
+  export default text;
+}
+
 declare module '*.css';

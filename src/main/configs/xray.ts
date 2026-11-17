@@ -2,10 +2,18 @@ export interface XrayOptions {
   socksPort: number;
   httpPort: number;
   iranDirect: boolean;
+  adBlock?: boolean;
+  dns?: string[];
 }
 
 // Resolver Xray uses for server names; its own UDP leaves the tunnel by process rule.
-const xrayDnsServers = ['1.1.1.1', '8.8.8.8'];
+export const defaultDns = ['1.1.1.1', '8.8.8.8'];
+
+// The user's DNS setting: addresses separated by commas or spaces, the default when empty.
+export function dnsServers(setting: string): string[] {
+  const list = setting.split(/[\s,]+/).filter((s) => /^[0-9a-fA-F.:]+$/.test(s));
+  return list.length > 0 ? list : defaultDns;
+}
 
 export function xrayConfig(outbound: Record<string, unknown>, opts: XrayOptions): Record<string, unknown> {
   const proxy = structuredClone(outbound);
@@ -17,7 +25,9 @@ export function xrayConfig(outbound: Record<string, unknown>, opts: XrayOptions)
   stream.sockopt = sockopt;
   proxy.streamSettings = stream;
 
-  const rules: Record<string, unknown>[] = [{ type: 'field', ip: ['geoip:private'], outboundTag: 'direct' }];
+  const rules: Record<string, unknown>[] = [];
+  if (opts.adBlock) rules.push({ type: 'field', domain: ['geosite:category-ads-all'], outboundTag: 'block' });
+  rules.push({ type: 'field', ip: ['geoip:private'], outboundTag: 'direct' });
   if (opts.iranDirect) {
     rules.push(
       { type: 'field', domain: ['geosite:category-ir', 'regexp:\\.ir$'], outboundTag: 'direct' },
@@ -26,7 +36,7 @@ export function xrayConfig(outbound: Record<string, unknown>, opts: XrayOptions)
   }
   return {
     log: { loglevel: 'warning' },
-    dns: { servers: xrayDnsServers, queryStrategy: 'UseIPv4' },
+    dns: { servers: opts.dns ?? defaultDns, queryStrategy: 'UseIPv4' },
     inbounds: [
       {
         tag: 'socks',

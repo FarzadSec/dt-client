@@ -1,11 +1,12 @@
 import os from 'node:os';
 import path from 'node:path';
 
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, safeStorage, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, shell, Tray } from 'electron';
 
-import type { AppProfile, PingResult, Settings, Status } from '../shared/types';
-import { ApiError, AppApi } from './api';
+import { addSpan, pushRecent } from '../shared/activity';
 import { engineOf } from '../shared/engines';
+import type { AppProfile, PingResult, Settings, SplitApp, Status } from '../shared/types';
+import { ApiError, AppApi } from './api';
 import { serverAddress } from './candidates';
 import { tcpPing } from './health';
 import { appApiBase, LinkError } from './link';
@@ -14,8 +15,6 @@ import { setAutostart } from './system/autostart';
 import { deviceId, deviceName } from './system/device';
 import { Vpn } from './vpn';
 
-const startHidden = process.argv.includes('--hidden');
-
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
@@ -23,6 +22,7 @@ if (!app.requestSingleInstanceLock()) {
 const userAgent = `DTClient/${app.getVersion()} (windows)`;
 const binDir = app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(app.getAppPath(), 'resources', 'bin');
 const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(app.getAppPath(), 'build', 'icon.png');
+const titleBarHeight = 56;
 
 let window: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -31,9 +31,12 @@ let store: Store;
 let vpn: Vpn;
 let ready = false;
 let profileCache: AppProfile | null = null;
+let lastStatus: Status = { state: 'disconnected' };
+let bookedUntil = 0;
+let reconnectAttempts = 0;
 
 // IPC carries only a message string, so failures cross as a code the window translates.
-type Result<T> = { ok: true; value: T } | { ok: false, code: string };
+type Result<T> = { ok: true; value: T } | { ok: false; code: string };
 
 function codeOf(err: unknown): string {
   if (err instanceof ApiError) return err.code;
@@ -122,11 +125,88 @@ async function connect(locationId: number | null): Promise<Status> {
 
 async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
   if (patch.startWithWindows !== undefined && app.isPackaged) await setAutostart(patch.startWithWindows, process.execPath);
-  return store.saveSettings(patch);
+  const settings = store.saveSettings(patch);
+  if (patch.theme) applyTheme(settings);
+  return settings;
+}
+
+async function pickApp(): Promise<SplitApp | null> {
+  const options = { properties: ['openFile' as const], filters: [{ name: 'Programs', extensions: ['exe'] }] };
+  const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+  const file = result.filePaths[0];
+  if (result.canceled || !file) return null;
+  return { name: path.basename(file).toLowerCase(), path: file };
+}
+
+async function appIcon(file: string): Promise<string | null> {
+  try {
+    return (await app.getFileIcon(file, { size: 'normal' })).toDataURL();
+  } catch {
+    return null;
+  }
+}
+
+// The window controls Windows draws over the title bar follow the theme.
+function applyTheme(settings: Settings): void {
+  if (nativeTheme.themeSource !== settings.theme) nativeTheme.themeSource = settings.theme;
+  paintWindowFrame();
+}
+
+function paintWindowFrame(): void {
+  const dark = nativeTheme.shouldUseDarkColors;
+  window?.setTitleBarOverlay({ color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight });
+  window?.setBackgroundColor(dark ? '#111317' : '#f3f4f7');
+}
+
+const notices = {
+  fa: { connected: 'متصل شد', lost: 'اتصال قطع شد', disconnected: 'اتصال قطع شد' },
+  en: { connected: 'Connected', lost: 'Connection lost', disconnected: 'Disconnected' },
+};
+
+function notify(title: string, body: string): void {
+  if (!store.settings().notifications || !Notification.isSupported()) return;
+  new Notification({ title, body, icon: iconPath, silent: true }).show();
+}
+
+// Books connected time up to now; runs on every change and once a minute while connected.
+function bookActivity(now = Date.now()): void {
+  if (lastStatus.state !== 'connected' || !lastStatus.since) return;
+  const from = Math.max(bookedUntil, lastStatus.since);
+  if (now <= from) return;
+  const activity = store.activity();
+  store.saveActivity({ ...activity, days: addSpan(activity.days, from, now) });
+  bookedUntil = now;
+}
+
+function onStatus(status: Status): void {
+  const previous = lastStatus;
+  bookActivity();
+  lastStatus = status;
+  const text = notices[store.settings().language];
+  if (status.state === 'connected' && previous.state !== 'connected') {
+    reconnectAttempts = 0;
+    bookedUntil = status.since ?? Date.now();
+    const used = status.serverId ?? status.locationId;
+    if (typeof used === 'number') {
+      const activity = store.activity();
+      store.saveActivity({ ...activity, recents: pushRecent(activity.recents, used) });
+    }
+    notify(text.connected, status.configName ?? '');
+  }
+  if (status.state === 'disconnected' && previous.state === 'connected') {
+    notify(status.error === 'connection_lost' ? text.lost : text.disconnected, previous.configName ?? '');
+  }
+  // A dropped connection comes back by itself up to three times, a few seconds apart.
+  if (status.error === 'connection_lost' && store.settings().autoReconnect && reconnectAttempts < 3) {
+    reconnectAttempts++;
+    setTimeout(() => void connect(status.locationId ?? null), 2000 * reconnectAttempts);
+  }
+  window?.webContents.send('status', status);
+  updateTray(status);
 }
 
 function showWindow(): void {
-  if (!window) createWindow();
+  if (!window) createWindow(true);
   window?.show();
   window?.focus();
 }
@@ -147,17 +227,19 @@ function updateTray(status: Status): void {
   );
 }
 
-function createWindow(): void {
+function createWindow(show: boolean): void {
+  const dark = nativeTheme.shouldUseDarkColors;
   window = new BrowserWindow({
-    width: 420,
-    height: 740,
-    resizable: false,
-    maximizable: false,
-    show: !startHidden,
+    width: 1200,
+    height: 780,
+    minWidth: 980,
+    minHeight: 660,
+    show,
     title: 'DT Client',
     icon: iconPath,
-    backgroundColor: '#0b1220',
-    autoHideMenuBar: true,
+    backgroundColor: dark ? '#111317' : '#f3f4f7',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight },
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
@@ -184,6 +266,7 @@ app.whenReady().then(async () => {
   });
   vpn = new Vpn({ bin: binDir, work: path.join(app.getPath('userData'), 'run') });
   profileCache = store.profile();
+  nativeTheme.themeSource = store.settings().theme;
   ready = true;
 
   handle('session', () => {
@@ -199,19 +282,21 @@ app.whenReady().then(async () => {
   handle('disconnect', () => vpn.disconnect());
   handle('status', () => vpn.status());
   handle('ping', ping);
+  handle('activity', () => store.activity());
+  handle('pickApp', pickApp);
+  handle('appIcon', appIcon);
   handle('openExternal', async (url: string) => {
     if (/^https?:\/\//.test(url) || url.startsWith('tg://')) await shell.openExternal(url);
   });
 
-  vpn.on('status', (status: Status) => {
-    window?.webContents.send('status', status);
-    updateTray(status);
-  });
+  vpn.on('status', onStatus);
+  setInterval(() => bookActivity(), 60_000);
+  nativeTheme.on('updated', paintWindowFrame);
 
   tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));
   tray.on('click', showWindow);
   updateTray(vpn.status());
-  createWindow();
+  createWindow(!(process.argv.includes('--hidden') || store.settings().launchMinimized));
 
   if (store.session() && store.settings().connectOnStart) void connect(store.settings().locationId);
 });
@@ -221,6 +306,7 @@ app.on('before-quit', (event) => {
   if (quitting || !ready) return;
   event.preventDefault();
   quitting = true;
+  bookActivity();
   void vpn.disconnect().finally(() => app.exit(0));
 });
 

@@ -1,4 +1,14 @@
-export function Flag({ code }: { code: string }) {
-  if (!/^[A-Za-z]{2}$/.test(code)) return <span className="flag flag-empty" aria-hidden />;
-  return <span className={`flag fi fi-${code.toLowerCase()}`} aria-hidden />;
+import { BoltIcon } from './Icons';
+
+export function Flag({ code, size = 32 }: { code: string | null; size?: number }) {
+  const style = { width: size, height: size };
+  if (code === null) {
+    return (
+      <span className="flag flag-fastest" style={style} aria-hidden>
+        <BoltIcon />
+      </span>
+    );
+  }
+  if (!/^[A-Za-z]{2}$/.test(code)) return <span className="flag flag-empty" style={style} aria-hidden />;
+  return <span className={`flag fi fis fi-${code.toLowerCase()}`} style={style} aria-hidden />;
 }

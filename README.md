@@ -26,13 +26,19 @@ Engines, all started by the app (which runs as administrator):
 
 **Automatic** tries the Xray protocols of the chosen location first, then WireGuard, OpenVPN and L2TP, and keeps the first that answers (an Xray config must fetch `https://www.gstatic.com/generate_204` through itself).
 
+The window follows the layout of the big VPN apps: a rail of pages (home, locations, settings), a location search in the title bar, a home page with a world map that moves to the chosen server, the connection state and a quick-connect button, recent locations, time connected over the last seven days, the account and the protection switches; a location list grouped by country with ping and a protocol filter; and settings in sections. Persian (right to left) and English, dark, light or the system's theme. The map is Natural Earth (via `world-atlas`), drawn once by `scripts/gen-map.mjs` into `src/renderer/geo/`.
+
 Settings:
 
+- **Protocol**: automatic, or only Xray, WireGuard, OpenVPN or L2TP.
 - **Kill switch** (Xray and WireGuard): the TUN runs with `strict_route`, and if Xray stops the tunnel stays up with nothing behind it until the user disconnects.
+- **Reconnect automatically**: a dropped connection is tried again up to three times.
+- **Block ads and trackers**: `geosite:category-ads-all` goes to Xray's blackhole.
+- **Custom DNS**: the servers sing-box asks through the tunnel and Xray resolves server names with.
+- **Split tunneling** (Xray and WireGuard): chosen `.exe` files leave directly by sing-box process rule, and **Iranian sites without VPN** sends `geosite:category-ir`, `.ir` and `geoip:ir` direct.
 - **WebRTC leak protection**: sets the `WebRtcIPHandling` policy of Chrome, Edge and Brave to `disable_non_proxied_udp` while connected, and restores it after.
 - **Match timezone**: sets Windows' timezone to the location's (`tzutil`) while connected and restores it after.
-- **Iranian sites without VPN**: `geosite:category-ir`, `.ir` and `geoip:ir` go direct (Xray and WireGuard).
-- Connect when the app starts, start with Windows (a scheduled task, since the app needs administrator rights), Persian or English.
+- Launch at startup (a scheduled task, since the app needs administrator rights), launch minimized to the tray, connect when the app starts, connection notifications, language and appearance.
 
 The session token and the profile are stored sealed with Electron's `safeStorage` (DPAPI).
 

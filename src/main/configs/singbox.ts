@@ -1,6 +1,9 @@
 export interface TunOptions {
   socksPort: number;
   strictRoute: boolean;
+  dns?: string;
+  // .exe names whose traffic leaves directly (split tunneling).
+  bypassApps?: string[];
 }
 
 export const tunInterfaceName = 'DT Client';
@@ -13,7 +16,7 @@ export function singboxTunConfig(opts: TunOptions): Record<string, unknown> {
     log: { level: 'warn', timestamp: true },
     dns: {
       servers: [
-        { type: 'tcp', tag: 'remote', server: '1.1.1.1', detour: 'proxy' },
+        { type: 'tcp', tag: 'remote', server: opts.dns ?? '1.1.1.1', detour: 'proxy' },
         { type: 'local', tag: 'local' },
       ],
       final: 'remote',
@@ -39,7 +42,7 @@ export function singboxTunConfig(opts: TunOptions): Record<string, unknown> {
       rules: [
         { action: 'sniff' },
         { protocol: 'dns', action: 'hijack-dns' },
-        { process_name: directProcesses, outbound: 'direct' },
+        { process_name: [...directProcesses, ...(opts.bypassApps ?? [])], outbound: 'direct' },
         { ip_is_private: true, outbound: 'direct' },
       ],
       final: 'proxy',
