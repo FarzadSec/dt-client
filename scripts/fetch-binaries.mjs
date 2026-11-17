@@ -65,9 +65,16 @@ fs.copyFileSync(find(sbDir, 'sing-box.exe'), path.join(bin, 'sing-box.exe'));
 versions.push(`sing-box ${singbox.tag_name}`);
 
 // 2.6 is the last line that drives wintun, which needs no driver installed; 2.7 dropped it.
-const ovpn = await release('OpenVPN/openvpn-build', (tag) => tag.startsWith('OpenVPN-2.6.'));
-const msiUrl = ovpn.assets.find((a) => /-amd64\.msi$/.test(a.name))?.browser_download_url ?? `https://swupdate.openvpn.org/community/releases/${ovpn.tag_name}-amd64.msi`;
-const msi = await download(msiUrl, path.join(tmp, 'openvpn.msi'));
+// Its Windows builds are tags of openvpn-build, not GitHub releases; the MSI is on swupdate.
+const ovpnTag = execFileSync('git', ['ls-remote', '--tags', 'https://github.com/OpenVPN/openvpn-build'], { encoding: 'utf8' })
+  .split('\n')
+  .map((line) => /refs\/tags\/(OpenVPN-2\.6\.(\d+)-I(\d+))$/.exec(line))
+  .filter(Boolean)
+  .sort((a, b) => Number(a[2]) - Number(b[2]) || Number(a[3]) - Number(b[3]))
+  .pop()?.[1];
+if (!ovpnTag) throw new Error('no OpenVPN 2.6 build tag');
+const ovpn = { tag_name: ovpnTag };
+const msi = await download(`https://swupdate.openvpn.org/community/releases/${ovpnTag}-amd64.msi`, path.join(tmp, 'openvpn.msi'));
 const ovpnDir = path.join(tmp, 'openvpn');
 execFileSync('msiexec.exe', ['/a', msi, '/qn', `TARGETDIR=${ovpnDir}`], { stdio: 'inherit' });
 const ovpnExe = find(ovpnDir, 'openvpn.exe');
