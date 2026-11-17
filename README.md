@@ -47,7 +47,7 @@ npm run typecheck
 npm run build     # dist/
 ```
 
-`node scripts/fetch-binaries.mjs` (Windows) downloads the engines into `resources/bin`: the latest Xray, the latest sing-box 1.12, OpenVPN 2.6 from its MSI, and wintun. `npm run dist:win` builds `release/DT-Client-Setup-<version>.exe`.
+`node scripts/fetch-binaries.mjs` (Windows) downloads the engines into `resources/bin`: the latest Xray and sing-box, OpenVPN 2.6 (the last line that drives wintun) from its MSI, and wintun. `npm run dist:win` builds `release/DT-Client-Setup-<version>.exe`.
 
 CI (`.github/workflows/build.yml`) runs the tests on Linux, then on Windows fetches the engines, checks the configurations the app writes with `xray run -test` and `sing-box check`, and builds the installer, uploaded as the `DT-Client-Setup` artifact. A `v*` tag publishes it as a release.
 

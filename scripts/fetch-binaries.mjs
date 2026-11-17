@@ -59,15 +59,15 @@ const xrayDir = unzip(await download(asset(xray, /^Xray-windows-64\.zip$/), path
 for (const f of ['xray.exe', 'geoip.dat', 'geosite.dat']) fs.copyFileSync(path.join(xrayDir, f), path.join(bin, f));
 versions.push(`xray ${xray.tag_name}`);
 
-// The app writes sing-box 1.12 configurations.
-const singbox = await release('SagerNet/sing-box', (tag) => tag.startsWith('v1.12.'));
+const singbox = await release('SagerNet/sing-box', () => true);
 const sbDir = unzip(await download(asset(singbox, /windows-amd64\.zip$/), path.join(tmp, 'sing-box.zip')), path.join(tmp, 'sing-box'));
 fs.copyFileSync(find(sbDir, 'sing-box.exe'), path.join(bin, 'sing-box.exe'));
 versions.push(`sing-box ${singbox.tag_name}`);
 
-// 2.6 still drives wintun, which needs no driver installed.
-const ovpn = await release('OpenVPN/openvpn-build', (tag) => tag.startsWith('v2.6.'));
-const msi = await download(asset(ovpn, /^OpenVPN-.*-amd64\.msi$/), path.join(tmp, 'openvpn.msi'));
+// 2.6 is the last line that drives wintun, which needs no driver installed; 2.7 dropped it.
+const ovpn = await release('OpenVPN/openvpn-build', (tag) => tag.startsWith('OpenVPN-2.6.'));
+const msiUrl = ovpn.assets.find((a) => /-amd64\.msi$/.test(a.name))?.browser_download_url ?? `https://swupdate.openvpn.org/community/releases/${ovpn.tag_name}-amd64.msi`;
+const msi = await download(msiUrl, path.join(tmp, 'openvpn.msi'));
 const ovpnDir = path.join(tmp, 'openvpn');
 execFileSync('msiexec.exe', ['/a', msi, '/qn', `TARGETDIR=${ovpnDir}`], { stdio: 'inherit' });
 const ovpnExe = find(ovpnDir, 'openvpn.exe');

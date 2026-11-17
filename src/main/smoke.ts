@@ -8,9 +8,10 @@ import { xrayConfig } from './configs/xray';
 const out = process.argv[2] ?? 'smoke';
 fs.mkdirSync(out, { recursive: true });
 const outbounds: Record<string, Record<string, unknown>> = {
+  // The shape Manifold's link parser gives the app.
   vless: {
     protocol: 'vless',
-    settings: { vnext: [{ address: 'de.example.com', port: 443, users: [{ id: '11111111-2222-4333-8444-555555555555', encryption: 'none' }] }] },
+    settings: { address: 'de.example.com', encryption: 'none', flow: '', id: '11111111-2222-4333-8444-555555555555', port: 443 },
     streamSettings: { network: 'tcp', security: 'tls', tlsSettings: { serverName: 'de.example.com' } },
   },
   wireguard: {
