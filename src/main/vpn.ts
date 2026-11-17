@@ -209,9 +209,9 @@ export class Vpn extends EventEmitter {
     return status;
   }
 
-  async connect(profile: AppProfile, settings: Settings, locationId: number | null): Promise<Status> {
+  async connect(profile: AppProfile, settings: Settings, locationId: number | null, latency?: Map<string, number | null>): Promise<Status> {
     if (this.current.state !== 'disconnected' || this.current.blocking) await this.disconnect();
-    const list = candidates(profile, locationId, settings.protocol);
+    const list = candidates(profile, locationId, settings.protocol, latency);
     if (list.length === 0) return this.set({ state: 'disconnected', error: 'no_config' });
     this.set({ state: 'connecting', locationId });
 

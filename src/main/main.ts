@@ -116,7 +116,8 @@ async function connect(locationId: number | null): Promise<Status> {
   const profile = await refreshProfile(true).catch(() => profileCache ?? store.profile());
   if (!profile) return vpn.status();
   store.saveSettings({ locationId });
-  return vpn.connect(profile, store.settings(), locationId);
+  const latency = locationId === null ? new Map((await ping()).map((p) => [p.link, p.ms])) : undefined;
+  return vpn.connect(profile, store.settings(), locationId, latency);
 }
 
 async function saveSettings(patch: Partial<Settings>): Promise<Settings> {

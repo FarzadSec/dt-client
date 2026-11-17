@@ -30,6 +30,23 @@ describe('candidates', () => {
     expect(candidates(profile, null, 'auto').map((c) => c.config.name)).toEqual(['vless', 'ext', 'wg', 'ovpn', 'l2tp']);
   });
 
+  it('tries the quickest server first on the fastest location', () => {
+    const twoVless: AppProfile = {
+      ...profile,
+      configs: [
+        { protocol: 'vless', name: 'slow', link: 'vless://u@slow.example.com:443', locationId: 1, outbound: { protocol: 'vless' } },
+        { protocol: 'vless', name: 'quick', link: 'vless://u@quick.example.com:443', locationId: 2, outbound: { protocol: 'vless' } },
+        { protocol: 'vless', name: 'down', link: 'vless://u@down.example.com:443', locationId: 3, outbound: { protocol: 'vless' } },
+      ],
+    };
+    const latency = new Map<string, number | null>([
+      ['vless://u@slow.example.com:443', 240],
+      ['vless://u@quick.example.com:443', 35],
+      ['vless://u@down.example.com:443', null],
+    ]);
+    expect(candidates(twoVless, null, 'auto', latency).map((c) => c.config.name)).toEqual(['quick', 'slow', 'down']);
+  });
+
   it('keeps to the chosen protocol', () => {
     expect(candidates(profile, null, 'xray').map((c) => c.config.name)).toEqual(['vless', 'ext']);
     expect(candidates(profile, null, 'wireguard').map((c) => c.config.name)).toEqual(['wg']);

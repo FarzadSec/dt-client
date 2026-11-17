@@ -25,8 +25,14 @@ function matches(choice: ProtocolChoice, config: AppConfig, engine: Engine): boo
   }
 }
 
-// The configs a connect to locationId tries, in order; null means every location.
-export function candidates(profile: AppProfile, locationId: number | null, choice: ProtocolChoice): Candidate[] {
+// The configs a connect to locationId tries, in order; null means every location, the
+// lowest latency first within each kind. latency maps a link to its ping in ms.
+export function candidates(
+  profile: AppProfile,
+  locationId: number | null,
+  choice: ProtocolChoice,
+  latency: Map<string, number | null> = new Map(),
+): Candidate[] {
   const out: Candidate[] = [];
   for (const config of profile.configs) {
     const engine = engineOf(config);
@@ -34,7 +40,8 @@ export function candidates(profile: AppProfile, locationId: number | null, choic
     if (locationId !== null && config.locationId !== locationId) continue;
     out.push({ config, engine });
   }
-  return out.sort((a, b) => rank(a.config, a.engine) - rank(b.config, b.engine));
+  const ms = (c: Candidate) => latency.get(c.config.link) ?? Number.POSITIVE_INFINITY;
+  return out.sort((a, b) => rank(a.config, a.engine) - rank(b.config, b.engine) || ms(a) - ms(b));
 }
 
 export function serverAddress(config: AppConfig): { host: string; port: number } | null {
