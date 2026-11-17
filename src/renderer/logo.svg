@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="DT Client">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="24" fill="url(#g)"/>
+  <path fill="#fff" fill-rule="evenodd" d="M15 30h12a21 21 0 0 1 0 42H15zM25 40v22h2a11 11 0 0 0 0-22z"/>
+  <path fill="#fff" d="M53 30h33v10H74.5v32h-10V40H53z"/>
+</svg>

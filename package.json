@@ -1,0 +1,36 @@
+{
+  "name": "dt-client",
+  "productName": "DT Client",
+  "version": "0.1.0",
+  "description": "DataCraft Team VPN client",
+  "author": "DataCraft Team",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build:main": "node scripts/build-main.mjs",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "npm run build && electron .",
+    "fetch-binaries": "node scripts/fetch-binaries.mjs",
+    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "flag-icons": "^7.6.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0",
+    "windows-iana": "^5.1.0"
+  }
+}

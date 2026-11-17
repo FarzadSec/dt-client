@@ -1,0 +1,31 @@
+appId: team.datacraft.dtclient
+productName: DT Client
+copyright: Copyright © DataCraft Team
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - '!dist/smoke.js'
+  - package.json
+extraResources:
+  - from: resources/bin
+    to: bin
+    filter: ['**/*', '!.gitkeep']
+  - from: build/icon.png
+    to: icon.png
+npmRebuild: false
+win:
+  target: nsis
+  icon: build/icon.ico
+  requestedExecutionLevel: requireAdministrator
+  artifactName: DT-Client-Setup-${version}.exe
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DT Client
+  uninstallDisplayName: DT Client
+  include: build/installer.nsh

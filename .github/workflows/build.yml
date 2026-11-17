@@ -1,0 +1,71 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Fetch the engines
+        run: node scripts/fetch-binaries.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check the configurations the app writes with the real engines
+        shell: pwsh
+        run: |
+          node dist/smoke.js smoke
+          & resources\bin\xray.exe run -test -c smoke\xray-vless.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & resources\bin\xray.exe run -test -c smoke\xray-wireguard.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & resources\bin\sing-box.exe check -c smoke\tun.json
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $v = & resources\bin\openvpn\openvpn.exe --version 2>&1 | Out-String
+          Write-Output $v
+          if ($v -notmatch 'OpenVPN 2\.6') { exit 1 }
+      - name: Build the installer
+        run: npx electron-builder --win nsis --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DT-Client-Setup
+          path: release/DT-Client-Setup-*.exe
+          if-no-files-found: error
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $exe = Get-ChildItem release\DT-Client-Setup-*.exe | Select-Object -First 1
+          gh release create $env:GITHUB_REF_NAME $exe.FullName --title "DT Client $env:GITHUB_REF_NAME" --notes-file resources\bin\VERSIONS.txt
