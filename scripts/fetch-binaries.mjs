@@ -65,16 +65,31 @@ fs.copyFileSync(find(sbDir, 'sing-box.exe'), path.join(bin, 'sing-box.exe'));
 versions.push(`sing-box ${singbox.tag_name}`);
 
 // 2.6 is the last line that drives wintun, which needs no driver installed; 2.7 dropped it.
-// Its Windows builds are tags of openvpn-build, not GitHub releases; the MSI is on swupdate.
-const ovpnTag = execFileSync('git', ['ls-remote', '--tags', 'https://github.com/OpenVPN/openvpn-build'], { encoding: 'utf8' })
+// Its Windows builds are tags of openvpn-build; a tag can precede its published MSI.
+const ovpnTags = execFileSync('git', ['ls-remote', '--tags', 'https://github.com/OpenVPN/openvpn-build'], { encoding: 'utf8' })
   .split('\n')
   .map((line) => /refs\/tags\/(OpenVPN-2\.6\.(\d+)-I(\d+))$/.exec(line))
   .filter(Boolean)
-  .sort((a, b) => Number(a[2]) - Number(b[2]) || Number(a[3]) - Number(b[3]))
-  .pop()?.[1];
-if (!ovpnTag) throw new Error('no OpenVPN 2.6 build tag');
-const ovpn = { tag_name: ovpnTag };
-const msi = await download(`https://swupdate.openvpn.org/community/releases/${ovpnTag}-amd64.msi`, path.join(tmp, 'openvpn.msi'));
+  .sort((a, b) => Number(b[2]) - Number(a[2]) || Number(b[3]) - Number(a[3]))
+  .map((m) => m[1]);
+const msi = path.join(tmp, 'openvpn.msi');
+let ovpn = null;
+for (const tag of ovpnTags.slice(0, 8)) {
+  for (const url of [
+    `https://github.com/OpenVPN/openvpn-build/releases/download/${tag}/${tag}-amd64.msi`,
+    `https://swupdate.openvpn.org/community/releases/${tag}-amd64.msi`,
+  ]) {
+    try {
+      await download(url, msi);
+      ovpn = { tag_name: tag };
+      break;
+    } catch (err) {
+      console.log(`skip ${url}: ${err.message}`);
+    }
+  }
+  if (ovpn) break;
+}
+if (!ovpn) throw new Error('no OpenVPN 2.6 MSI found');
 const ovpnDir = path.join(tmp, 'openvpn');
 execFileSync('msiexec.exe', ['/a', msi, '/qn', `TARGETDIR=${ovpnDir}`], { stdio: 'inherit' });
 const ovpnExe = find(ovpnDir, 'openvpn.exe');
