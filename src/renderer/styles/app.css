@@ -7,10 +7,11 @@
   --line: #2a2f38;
   --text: #f1f3f7;
   --muted: #98a1b3;
-  --accent: #4c6fff;
-  --accent-hover: #6481ff;
-  --accent-2: #22d3ee;
-  --accent-soft: rgba(76, 111, 255, 0.32);
+  --accent: #36cfc0;
+  --accent-hover: #5bdccf;
+  --accent-2: #8ae9de;
+  --on-accent: #04201f;
+  --accent-soft: rgba(54, 207, 192, 0.28);
   --ok: #2fd085;
   --ok-soft: rgba(47, 208, 133, 0.16);
   --bad: #ff5d5d;
@@ -34,9 +35,11 @@
   --line: #e3e6ec;
   --text: #14161b;
   --muted: #5d6676;
-  --accent: #3d5afe;
-  --accent-hover: #2f4ef0;
-  --accent-soft: rgba(61, 90, 254, 0.25);
+  --accent: #0e9384;
+  --accent-hover: #0b7e71;
+  --accent-2: #3cc6b6;
+  --on-accent: #ffffff;
+  --accent-soft: rgba(14, 147, 132, 0.22);
   --ok: #12a865;
   --ok-soft: rgba(18, 168, 101, 0.12);
   --bad: #e5484d;
@@ -146,7 +149,7 @@ select {
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -1196,8 +1199,8 @@ select {
   bottom: -20vh;
   height: 62vh;
   background:
-    radial-gradient(ellipse 45% 70% at 28% 100%, rgba(34, 211, 238, 0.28), transparent 70%),
-    radial-gradient(ellipse 50% 80% at 72% 100%, rgba(99, 102, 241, 0.4), transparent 70%);
+    radial-gradient(ellipse 45% 70% at 28% 100%, rgba(138, 233, 222, 0.22), transparent 70%),
+    radial-gradient(ellipse 50% 80% at 72% 100%, rgba(54, 207, 192, 0.34), transparent 70%);
   filter: blur(30px);
   pointer-events: none;
 }
@@ -1216,7 +1219,7 @@ select {
 .welcome-logo {
   width: 104px;
   height: 104px;
-  filter: drop-shadow(0 16px 40px rgba(99, 102, 241, 0.4));
+  filter: drop-shadow(0 16px 40px rgba(54, 207, 192, 0.35));
 }
 
 .welcome-brand {
