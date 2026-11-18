@@ -75,9 +75,12 @@ x25519
 wg_server_priv=$priv wg_server_pub=$pub
 x25519
 wg_client_priv=$priv wg_client_pub=$pub
-printf '%s' "$wg_server_priv" >"$out/wg-server.key"
+# wg reads the key where Manifold keeps them: AppArmor lets it read /etc/wireguard, not a user's /tmp.
+sudo mkdir -p /etc/wireguard
+printf '%s' "$wg_server_priv" | sudo tee /etc/wireguard/wgtest.key >/dev/null
+sudo chmod 600 /etc/wireguard/wgtest.key
 sudo ip link add wgtest type wireguard
-sudo wg set wgtest listen-port 51820 private-key "$out/wg-server.key" peer "$wg_client_pub" allowed-ips 10.66.66.2/32
+sudo wg set wgtest listen-port 51820 private-key /etc/wireguard/wgtest.key peer "$wg_client_pub" allowed-ips 10.66.66.2/32
 sudo ip address add 10.66.66.1/24 dev wgtest
 sudo ip link set wgtest up
 sudo sysctl -qw net.ipv4.ip_forward=1
