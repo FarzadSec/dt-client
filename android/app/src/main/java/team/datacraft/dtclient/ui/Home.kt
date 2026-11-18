@@ -212,14 +212,21 @@ private fun MapCard(p: Profile, status: Status, settings: Settings, activity: Ma
                         else -> t("notSecured")
                     }
                     Text(title, color = ink, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                    val place = shown?.let { placeName(it, Geo.name(context, it.countryCode, t.language)) } ?: t("fastest")
-                    val line = when {
-                        connected && status.since > 0 -> "$place · ${iso(clock(now - status.since))}"
-                        busy && status.protocol.isNotEmpty() -> "$place · ${iso(status.protocol.uppercase())}"
-                        else -> t("connectTo", "place" to place)
+                    val place = shown?.let { placeName(it, Geo.name(context, it.countryCode, t.language), Geo.name(context, it.countryCode, "en")) } ?: t("fastest")
+                    // Where it goes, and while connected the time and protocol on a line of their own.
+                    Row(Modifier.clickable(enabled = !connected && !busy, onClick = onExpand), verticalAlignment = Alignment.CenterVertically) {
+                        if (!connected && !busy) {
+                            Icon(painterResource(R.drawable.ic_pin), null, tint = c.muted, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(place, color = c.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Text(line, color = c.text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable(enabled = !connected && !busy, onClick = onExpand))
-                    if (connected && status.protocol.isNotEmpty()) Text(iso("${status.protocol.uppercase()} · ${status.configName}"), color = c.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val detail = when {
+                        connected && status.since > 0 -> listOf(clock(now - status.since), status.protocol.uppercase()).filter { it.isNotEmpty() }.joinToString(" · ")
+                        busy -> status.protocol.uppercase()
+                        else -> ""
+                    }
+                    if (detail.isNotEmpty()) Text(iso(detail), color = c.muted, fontSize = 13.sp, maxLines = 1)
                 }
             }
             if (status.error.isNotEmpty() && status.state == ConnState.Disconnected) {

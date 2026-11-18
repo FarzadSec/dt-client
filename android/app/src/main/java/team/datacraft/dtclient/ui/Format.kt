@@ -63,8 +63,10 @@ fun expiryText(t: Strings, a: Account, now: Long = System.currentTimeMillis()): 
     else -> t("never")
 }
 
-// The location's own name, with its city when that adds something.
-fun placeName(l: Location, countryName: String): String {
-    val name = l.name.ifEmpty { countryName.ifEmpty { l.countryCode.ifEmpty { "#${l.id}" } } }
+// The location's name, with its city when that adds something; a name that is only the country's
+// English name reads in the app's language.
+fun placeName(l: Location, countryName: String, englishName: String = ""): String {
+    val own = if (countryName.isNotEmpty() && (l.name.isEmpty() || l.name.equals(englishName, ignoreCase = true))) countryName else l.name
+    val name = own.ifEmpty { l.countryCode.ifEmpty { "#${l.id}" } }
     return if (l.city.isNotEmpty() && l.city != name) "$name · ${l.city}" else name
 }
