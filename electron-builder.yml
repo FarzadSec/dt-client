@@ -75,9 +75,9 @@ pacman:
 
 # macOS: an installer package that also sets up the root LaunchDaemon (build/pkg-scripts).
 mac:
-  target:
-    - target: pkg
-      arch: [x64, arm64]
+  # The architecture comes from the command line, one per run (npm run dist:mac): two pkg builds
+  # in one run share the same intermediate component package and remove it under each other.
+  target: pkg
   icon: build/icon.png
   category: public.app-category.utilities
   identity: null
