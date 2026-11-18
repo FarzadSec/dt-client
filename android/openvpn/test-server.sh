@@ -53,6 +53,7 @@ duplicate-cn
 keepalive 10 60
 persist-key
 persist-tun
+disable-dco
 script-security 2
 auth-user-pass-verify $d/check.sh via-file
 push "redirect-gateway def1 bypass-dhcp"
@@ -92,6 +93,12 @@ EOF
 )
   printf 'openvpn://%s' "$(printf '%s\n' "$profile" | base64 -w0 | tr '+/' '-_' | tr -d '=')" >"$out/$proto.link"
 done
+
+# The emulator's own network (SLIRP) reaches this machine's addresses too, the servers' tunnel
+# addresses included, arriving on lo. Dropped there, a reply from 10.8.0.1 or 10.9.0.1 can only
+# come through the tunnel.
+sudo iptables -I INPUT -i lo -d 10.8.0.1 -j DROP
+sudo iptables -I INPUT -i lo -d 10.9.0.1 -j DROP
 
 sleep 2
 for proto in tcp udp; do

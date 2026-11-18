@@ -129,25 +129,32 @@ class OpenVpnTest {
             DtVpnService.connect(context, 1)
             // Every state the connection passes through, for the failure message.
             val trail = mutableListOf<String>()
-            waitFor(60_000) {
-                val s = VpnState.status.value
-                val step = "${s.state} ${s.protocol} ${s.configName} ${s.error}".trim()
-                if (trail.lastOrNull() != step) trail += step
-                s.state == ConnState.Connected || (s.state == ConnState.Disconnected && s.error.isNotEmpty())
+            try {
+                waitFor(60_000) {
+                    val s = VpnState.status.value
+                    val step = "${s.state} ${s.protocol} ${s.configName} ${s.error}".trim()
+                    if (trail.lastOrNull() != step) trail += step
+                    s.state == ConnState.Connected || (s.state == ConnState.Disconnected && s.error.isNotEmpty())
+                }
+                val status = VpnState.status.value
+                assertEquals("states: $trail", ConnState.Connected, status.state)
+                assertEquals("openvpn", status.protocol)
+
+                // The shell is not left out of the VPN as the app is: its ping goes through the tunnel to the server.
+                val ping = shell("ping -c 3 -W 3 $gateway")
+                assertTrue(ping, ping.contains("bytes from $gateway"))
+                assertEquals("the connection held: $trail", ConnState.Connected, VpnState.status.value.state)
+
+                DtVpnService.disconnect(context)
+                assertTrue("disconnect", waitFor(15_000) { VpnState.status.value.state == ConnState.Disconnected })
+                // Android takes the interface down once OpenVPN has exited and closed it.
+                assertTrue("the tunnel is gone", waitFor(10_000) { !shell("ping -c 1 -W 1 $gateway").contains("bytes from $gateway") })
+            } catch (e: AssertionError) {
+                // One line, as the test report shows only the first: the app's own log, OpenVPN's output included.
+                val log = shell("logcat -d -v brief --pid=${android.os.Process.myPid()}").lines()
+                    .filter { "openvpn" in it || "DtVpn" in it }.takeLast(80).joinToString(" | ")
+                throw AssertionError("${e.message} | $log", e)
             }
-            val status = VpnState.status.value
-            // On failure the app's own log (OpenVPN's output included) says why.
-            val log = if (status.state == ConnState.Connected) "" else shell("logcat -d -v brief --pid=${android.os.Process.myPid()}").lines().filter { it.isNotBlank() }.takeLast(60).joinToString(" | ")
-            assertEquals("states: $trail | $log", ConnState.Connected, status.state)
-            assertEquals("openvpn", status.protocol)
-
-            // The shell is not left out of the VPN as the app is: its ping goes through the tunnel to the server.
-            val ping = shell("ping -c 3 -W 3 $gateway")
-            assertTrue(ping, ping.contains("bytes from $gateway"))
-
-            DtVpnService.disconnect(context)
-            assertTrue("disconnect", waitFor(15_000) { VpnState.status.value.state == ConnState.Disconnected })
-            assertFalse("the tunnel is gone", shell("ping -c 1 -W 2 $gateway").contains("bytes from $gateway"))
         }
     }
 }
