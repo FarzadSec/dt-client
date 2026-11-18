@@ -37,7 +37,7 @@ On an Android 11 emulator CI then checks the engines: the tunnel library and Xra
 
 ### Signing key
 
-Android installs an update only when it is signed with the same key as the installed copy. Until the key below is set, CI signs with its runner's throwaway debug key and every build is a new app to Android. Create the key once, keep the file and password safe (losing it means users must uninstall to update), and add four repository secrets (Settings → Secrets and variables → Actions):
+Android installs an update only when it is signed with the same key as the installed copy. Until the key below is set, CI signs with its runner's throwaway debug key and every build is a new app to Android, and a release stops at this step rather than publish APKs no later version could update. Create the key once, keep the file and password safe (losing it means users must uninstall to update), and add four repository secrets (Settings → Secrets and variables → Actions):
 
 ```
 keytool -genkeypair -keystore dt-client-release.jks -storetype PKCS12 -alias dtclient -keyalg RSA -keysize 4096 -validity 10950 -dname "CN=DataCraft"
