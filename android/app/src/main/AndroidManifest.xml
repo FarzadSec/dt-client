@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Only for scanning the sign-in QR code; asked for when the scanner opens. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <!-- Lists launchable apps for split tunneling without asking for every installed package. -->
     <queries>
@@ -18,9 +23,10 @@
         android:name=".DtApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="DT Client"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="DT Connect"
         android:supportsRtl="true"
-        android:theme="@style/Theme.DtClient"
+        android:theme="@style/Theme.DtConnect"
         android:usesCleartextTraffic="true">
 
         <activity
@@ -32,7 +38,20 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- dtconnect://login?sub=…&user=…: the sign-in link the bot and the panel give out. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dtconnect" android:host="login" />
+            </intent-filter>
         </activity>
+
+        <!-- The scanner is drawn by the app itself; the library's own screen is never opened. -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:exported="false"
+            tools:node="remove" />
 
         <service
             android:name=".vpn.DtVpnService"

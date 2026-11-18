@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from the DT Connect logo (logo/mark-reversed.svg). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group>
+        <path android:fillColor="#FFFFFF" android:pathData="M168 96 H240 A160 160 0 0 1 240 416 H168 A36 36 0 0 1 132 380 V132 A36 36 0 0 1 168 96 Z"/>
+        <path android:fillColor="#1FB6A6" android:pathData="M212 230C212 206.8 230.8 188 254 188C277.2 188 296 206.8 296 230C296 244.09 289.06 256.56 278.41 264.18L291.9 328.98Q292.1 329.96 291.91 330.93Q291.73 331.91 291.18 332.74Q290.64 333.57 289.81 334.13Q288.99 334.69 288.02 334.9Q287.51 335 287 335H221Q220.01 335 219.09 334.62Q218.17 334.24 217.46 333.54Q216.76 332.83 216.38 331.91Q216 330.99 216 330Q216 329.49 216.1 328.98L229.59 264.18C218.94 256.56 212 244.09 212 230Z"/>
+    </group>
+</vector>

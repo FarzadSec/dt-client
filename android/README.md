@@ -1,19 +1,31 @@
-# DT Client for Android
+# DT Connect for Android
 
 Android 5.0 and later, on every processor family (arm64-v8a, armeabi-v7a, x86_64, x86). Native Kotlin with Jetpack Compose, the same sign-in, profile, notices, refresh and ping as the desktop app.
 
-How it connects:
+## Screens
 
-- **Xray protocols and WireGuard**: Xray-core runs the panel's outbound behind a SOCKS port on 127.0.0.1 (`core/`, bound with gomobile), and hev-socks5-tunnel (MIT) carries the packets of Android's VPN interface to it.
-- **OpenVPN**: OpenVPN 2.7 itself, built from the upstream sources for Android (`openvpn/build.sh`) and shipped in the APK as `libovpnexec.so`, runs as its own process with the panel's profile. Built for Android it opens no tun device and sets no routes: over a management socket in the app's private storage it tells the app the address, routes and DNS servers the server pushed, the app opens the VPN interface with exactly those and hands it over, and OpenVPN passes back each socket it opens to the server so the app can keep it out of the tunnel (`vpn/OpenVpn.kt`, following OpenVPN's `doc/android.txt`). The login in the profile goes over that socket, not into a file. Profiles that would run programs, read files or open a control port are refused, as on the desktop. When the phone moves between Wi-Fi and mobile data OpenVPN reconnects at once, keeping the same tunnel.
-- **L2TP** is not offered: Android's own L2TP/IPsec client cannot be driven by an app, and Android 12 removed it.
+- **Welcome**: the DT Connect mark over the server map, *Log in*, *Scan sign-in QR code* and where the sign-in details are. The sign-in form takes the subscription link and the username, a pasted sign-in link, the camera or a QR picture.
+- **Home**: location search, the map card (glides to the chosen or connected server, the state with its timer and the one button: *Secure my connection* / *Disconnect*), recent locations (or the quickest ones before the first connection), the plan (days and traffic left), *Secured by VPN* (hours connected on each day of this week, kept on the phone only), the connection tools and settings.
+- **Locations**: every location grouped by country with its flag and ping, countries with several cities opening to list them, a protocol filter and *Test ping*.
+- **Protection**: protocol, Iranian sites without VPN, ad blocking, kill switch (Android's own), apps without VPN, DNS.
+- **Notices** (the panel's notices, always right to left in Vazirmatn) and **Account** (plan, refresh, language, dark or light, support, sign out).
 
-The app itself is left out of the VPN, so the engines' own connections leave directly instead of looping into the tunnel. **Automatic** tries the Xray protocols first, then WireGuard, then OpenVPN. *Iranian sites without VPN* and *ad blocking* are Xray routing rules, so they apply to the Xray protocols and WireGuard, not to OpenVPN.
+Navy and teal from the logo; dark by default, light or the system's on request; Persian and English.
 
-- **Kill switch**: Android's own. In Settings → Network → VPN → DT Client, turn on *Always-on VPN* and *Block connections without VPN*; the app's settings page opens that screen.
+How it connects: Xray-core runs the panel's outbound behind a SOCKS port on 127.0.0.1 (`core/`, bound with gomobile), and hev-socks5-tunnel (MIT) carries the packets of Android's VPN interface to it. The app itself is left out of the VPN, so Xray's own connections leave directly instead of looping into the tunnel. OpenVPN 2.7 runs as its own process (see below). L2TP needs Android's own VPN client, which apps cannot drive, so those configs are not offered here.
+
+- **Kill switch**: Android's own. In Settings → Network → VPN → DT Connect, turn on *Always-on VPN* and *Block connections without VPN*; the app opens that screen.
 - **Apps without VPN**: chosen apps are left out of the VPN (`addDisallowedApplication`).
-- **Notices**: banners and the bell as on the desktop, always right to left in Vazirmatn (bundled, OFL, `licenses/`). While connected, a new warning or critical notice also arrives as a notification.
-- **Sign-in** works with `http://` subscription links too (often an IP and port 2096): Android 9 and later refuse plain http unless the app allows it, which it does.
+- **Notices**: banners and the notices tab as on the desktop. While connected, a new warning or critical notice also arrives as a notification.
+
+## Tests
+
+`gradle -p android testReleaseUnitTest` runs the JVM tests (sign-in links, this week's bars, both languages complete). On an Android 11 emulator CI then runs:
+
+- `EnginesTest`: the native libraries load, Xray runs the app's configuration.
+- `OpenVpnTest`: the app connects through OpenVPN servers set up as Manifold sets them up, over TCP and UDP.
+- `ProtocolsTest`: the app signs in to a test panel (`test/mock-panel.mjs`) and connects through VLESS + REALITY + Vision, VMess over WebSocket, Trojan, Shadowsocks 2022 and WireGuard on the kernel (`test/protocol-servers.sh`).
+- `UiTourTest`: welcome, sign-in form, signing in by opening the QR code's link, every tab, the location list, connecting, English and light; each screen is kept as the `android-screens` artifact.
 
 ## Build
 
@@ -28,7 +40,7 @@ On an Android 11 emulator CI then checks the engines: the tunnel library and Xra
 Android installs an update only when it is signed with the same key as the installed copy. Until the key below is set, CI signs with its runner's throwaway debug key and every build is a new app to Android. Create the key once, keep the file and password safe (losing it means users must uninstall to update), and add four repository secrets (Settings → Secrets and variables → Actions):
 
 ```
-keytool -genkeypair -keystore dt-client-release.jks -storetype PKCS12 -alias dtclient -keyalg RSA -keysize 4096 -validity 10950 -dname "CN=DataCraft Team"
+keytool -genkeypair -keystore dt-client-release.jks -storetype PKCS12 -alias dtclient -keyalg RSA -keysize 4096 -validity 10950 -dname "CN=DataCraft"
 base64 -w0 dt-client-release.jks   # → ANDROID_KEYSTORE_BASE64
 ```
 

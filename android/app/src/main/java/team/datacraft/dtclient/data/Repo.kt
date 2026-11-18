@@ -27,8 +27,12 @@ object Repo {
     val fetchedAt = MutableStateFlow(0L)
     val pings = MutableStateFlow<Map<String, Int?>>(emptyMap())
     val pinging = MutableStateFlow(false)
+    // A sign-in code that arrived as a dtconnect:// link, waiting for the window to act on it.
+    val pendingSignIn = MutableStateFlow<SignInCode?>(null)
+    val sessions = MutableStateFlow<List<Session>>(emptyList())
+    private var openSince = 0L
 
-    val userAgent: String get() = "DTClient/${BuildConfig.VERSION_NAME} (android)"
+    val userAgent: String get() = "DTConnect/${BuildConfig.VERSION_NAME} (android)"
 
     // Changes made on the panel reach the app within this time; the refresh button is for now.
     const val REFRESH_MS = 10 * 60_000L
@@ -40,6 +44,41 @@ object Repo {
         val stored = prefs.getString("profile", null)
         profile.value = stored?.let { runCatching { Profile.parse(it) }.getOrNull() }
         signedIn.value = prefs.getString("token", null) != null && profile.value != null
+        fetchedAt.value = prefs.getLong("fetchedAt", 0L)
+        sessions.value = Secured.decode(prefs.getString("sessions", null))
+        // A session the app was stopped in counts until the last time it was seen running.
+        val since = prefs.getLong("openSince", 0L)
+        val seen = prefs.getLong("openSeen", 0L)
+        if (since > 0) closeSession(Session(since, maxOf(since, seen)))
+    }
+
+    // Every connection state passes through here: a session starts on Connected and ends when that stops.
+    fun track(status: Status) {
+        val now = System.currentTimeMillis()
+        if (status.state == ConnState.Connected) {
+            if (openSince == 0L) {
+                openSince = if (status.since in 1..now) status.since else now
+                prefs.edit().putLong("openSince", openSince).putLong("openSeen", now).apply()
+            }
+            val id = status.serverId ?: status.locationId
+            if (id != null && settings.value.recents.firstOrNull() != id) updateSettings { it.copy(recents = Secured.recents(it.recents, id)) }
+        } else if (openSince != 0L) {
+            val session = Session(openSince, now)
+            openSince = 0L
+            closeSession(session)
+        }
+    }
+
+    fun heartbeat() {
+        if (openSince != 0L) prefs.edit().putLong("openSeen", System.currentTimeMillis()).apply()
+    }
+
+    fun openSession(): Session? = if (openSince != 0L) Session(openSince, System.currentTimeMillis()) else null
+
+    private fun closeSession(session: Session) {
+        val next = Secured.add(sessions.value, session, System.currentTimeMillis())
+        sessions.value = next
+        prefs.edit().putString("sessions", Secured.encode(next)).remove("openSince").remove("openSeen").apply()
     }
 
     fun context(): Context = app
@@ -76,9 +115,10 @@ object Repo {
         val info = device()
         val token = Api.login(base, username.trim(), info, userAgent)
         val fetched = Api.profile(base, token, info.deviceId, userAgent)
-        prefs.edit().putString("subLink", subLink.trim()).putString("username", username.trim()).putString("token", token).putString("profile", fetched.raw).apply()
+        val now = System.currentTimeMillis()
+        prefs.edit().putString("subLink", subLink.trim()).putString("username", username.trim()).putString("token", token).putString("profile", fetched.raw).putLong("fetchedAt", now).apply()
         profile.value = fetched
-        fetchedAt.value = System.currentTimeMillis()
+        fetchedAt.value = now
         signOutReason.value = ""
         signedIn.value = true
     }
@@ -92,9 +132,10 @@ object Repo {
         if (subLink == null || token == null) return@withContext "bad_session"
         try {
             val fetched = Api.profile(Api.base(subLink), token, deviceId(), userAgent)
-            prefs.edit().putString("profile", fetched.raw).apply()
+            val now = System.currentTimeMillis()
+            prefs.edit().putString("profile", fetched.raw).putLong("fetchedAt", now).apply()
             profile.value = fetched
-            fetchedAt.value = System.currentTimeMillis()
+            fetchedAt.value = now
             null
         } catch (e: ApiException) {
             if (e.code in sessionEnding) signOut(e.code)

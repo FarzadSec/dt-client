@@ -93,6 +93,7 @@ data class Settings(
     val dismissedNotices: Set<String> = emptySet(),
     val seenNoticeId: Int = 0,
     val seenAnnounce: String = "",
+    val recents: List<Int> = emptyList(),
 ) {
     fun toJson(): String = JSONObject()
         .put("language", language).put("theme", theme).put("protocol", protocol)
@@ -101,6 +102,7 @@ data class Settings(
         .put("locationId", locationId ?: JSONObject.NULL)
         .put("dismissedNotices", JSONArray(dismissedNotices.toList()))
         .put("seenNoticeId", seenNoticeId).put("seenAnnounce", seenAnnounce)
+        .put("recents", JSONArray(recents))
         .toString()
 
     companion object {
@@ -121,6 +123,7 @@ data class Settings(
                     dismissedNotices = strings("dismissedNotices"),
                     seenNoticeId = o.optInt("seenNoticeId"),
                     seenAnnounce = o.optString("seenAnnounce"),
+                    recents = o.optJSONArray("recents")?.let { arr -> (0 until arr.length()).map { arr.optInt(it) } } ?: emptyList(),
                 )
             }.getOrDefault(Settings())
         }

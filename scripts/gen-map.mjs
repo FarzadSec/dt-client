@@ -1,5 +1,6 @@
 // Writes the world map the home page shows and the country table (centroid, English and
-// Persian name) from Natural Earth via world-atlas. Run after changing the projection.
+// Persian name) from Natural Earth via world-atlas, for the desktop window and the Android app.
+// Run after changing the projection.
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 
@@ -30,6 +31,9 @@ const round = (d) => d.replace(/(\d+\.\d)\d+/g, '$1');
 const body = shapes.map((f) => `<path d="${round(path(f) ?? '')}"/>`).join('');
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><g class="land">${body}</g></svg>\n`;
 fs.writeFileSync('src/renderer/geo/world.svg', svg);
+// The Android app draws the same land from the path data, one country per line.
+fs.mkdirSync('android/app/src/main/assets/map', { recursive: true });
+fs.writeFileSync('android/app/src/main/assets/map/world.txt', shapes.map((f) => round(path(f) ?? '')).filter(Boolean).join('\n') + '\n');
 
 // Short names read better in a list: "Iran", not "Islamic Republic of Iran".
 const nameOf = (code, lang) => {
@@ -47,5 +51,7 @@ for (const f of shapes) {
 for (const code of Object.keys(countries.getAlpha2Codes())) {
   table[code] ??= { lat: 0, lon: 0, en: nameOf(code, 'en'), fa: nameOf(code, 'fa') };
 }
-fs.writeFileSync('src/renderer/geo/countries.json', JSON.stringify({ map: { width, height, scale, ty }, countries: table }));
+const countriesJson = JSON.stringify({ map: { width, height, scale, ty }, countries: table });
+fs.writeFileSync('src/renderer/geo/countries.json', countriesJson);
+fs.writeFileSync('android/app/src/main/assets/map/countries.json', countriesJson);
 console.log(`map ${width}x${height}, ${shapes.length} shapes, ${Object.keys(table).length} countries, svg ${(svg.length / 1024).toFixed(0)} KB`);

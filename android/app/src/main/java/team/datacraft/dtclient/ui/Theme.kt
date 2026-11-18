@@ -5,6 +5,9 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -18,39 +21,91 @@ val Vazirmatn = FontFamily(
     Font(R.font.vazirmatn_bold, FontWeight.Bold),
 )
 
+// DT Connect's colours: navy and teal, from the logo.
 object Palette {
-    val accentDark = Color(0xFF36CFC0)
-    val accentLight = Color(0xFF0E9384)
-    val ok = Color(0xFF2FD085)
-    val bad = Color(0xFFFF5D5D)
+    val navy = Color(0xFF0B2B40)
+    val teal = Color(0xFF1FB6A6)
+    val tealBright = Color(0xFF34D1C0)
+    val ok = Color(0xFF1FB6A6)
+    val bad = Color(0xFFFF6B6B)
     val warn = Color(0xFFF5B83D)
     val critical = listOf(Color(0xFFE5484D), Color(0xFFC62F3A))
     val warning = listOf(Color(0xFFF7C04A), Color(0xFFEF9F27))
 }
 
-private val darkScheme = darkColorScheme(
-    primary = Palette.accentDark,
-    onPrimary = Color(0xFF04201F),
-    background = Color(0xFF111317),
-    onBackground = Color(0xFFF1F3F7),
-    surface = Color(0xFF1B1E24),
-    onSurface = Color(0xFFF1F3F7),
-    surfaceVariant = Color(0xFF252932),
-    onSurfaceVariant = Color(0xFF98A1B3),
-    outline = Color(0xFF2A2F38),
+@Immutable
+data class DtColors(
+    val dark: Boolean,
+    val background: Color,
+    val card: Color,
+    val cardHigh: Color,
+    val line: Color,
+    val text: Color,
+    val muted: Color,
+    val accent: Color,
+    val button: Color,
+    val onButton: Color,
+    val sea: Color,
+    val land: Color,
+    val secured: Color,
+    val unsecured: Color,
+    val unsecuredBadge: Color,
+    val securedBadge: Color,
 )
 
-private val lightScheme = lightColorScheme(
-    primary = Palette.accentLight,
-    onPrimary = Color.White,
-    background = Color(0xFFF3F4F7),
-    onBackground = Color(0xFF14161B),
-    surface = Color.White,
-    onSurface = Color(0xFF14161B),
-    surfaceVariant = Color(0xFFEEF0F4),
-    onSurfaceVariant = Color(0xFF5D6676),
-    outline = Color(0xFFE3E6EC),
+val DarkDt = DtColors(
+    dark = true,
+    background = Color(0xFF07141D),
+    card = Color(0xFF0F2131),
+    cardHigh = Color(0xFF16304A),
+    line = Color(0xFF1E3B52),
+    text = Color(0xFFEAF2F7),
+    muted = Color(0xFF8DA4B6),
+    accent = Palette.tealBright,
+    button = Palette.teal,
+    onButton = Palette.navy,
+    sea = Color(0xFF0B1B28),
+    land = Color(0xFF1C3549),
+    secured = Palette.tealBright,
+    unsecured = Color(0xFFFF8A80),
+    unsecuredBadge = Color(0xFF6E1414),
+    securedBadge = Color(0xFF0E5A52),
 )
+
+val LightDt = DtColors(
+    dark = false,
+    background = Color(0xFFF2F5F7),
+    card = Color(0xFFFFFFFF),
+    cardHigh = Color(0xFFE8EEF2),
+    line = Color(0xFFDCE4EA),
+    text = Palette.navy,
+    muted = Color(0xFF5B7183),
+    accent = Color(0xFF0F8F82),
+    button = Palette.teal,
+    onButton = Palette.navy,
+    sea = Color(0xFFDCE7EE),
+    land = Color(0xFFB9CCD9),
+    secured = Color(0xFF0F8F82),
+    unsecured = Color(0xFFD64545),
+    unsecuredBadge = Color(0xFFFFD9D6),
+    securedBadge = Color(0xFFCDF1EC),
+)
+
+val LocalDt = staticCompositionLocalOf { DarkDt }
+
+private fun scheme(c: DtColors) = if (c.dark) {
+    darkColorScheme(
+        primary = c.button, onPrimary = c.onButton, secondary = c.accent, background = c.background, onBackground = c.text,
+        surface = c.card, onSurface = c.text, surfaceVariant = c.cardHigh, onSurfaceVariant = c.muted, outline = c.line,
+        surfaceContainerLow = c.card, surfaceContainer = c.card, surfaceContainerHigh = c.cardHigh, error = Palette.bad,
+    )
+} else {
+    lightColorScheme(
+        primary = c.button, onPrimary = c.onButton, secondary = c.accent, background = c.background, onBackground = c.text,
+        surface = c.card, onSurface = c.text, surfaceVariant = c.cardHigh, onSurfaceVariant = c.muted, outline = c.line,
+        surfaceContainerLow = c.card, surfaceContainer = c.card, surfaceContainerHigh = c.cardHigh, error = Palette.bad,
+    )
+}
 
 private fun Typography.inFamily(f: FontFamily) = Typography(
     displayLarge = displayLarge.copy(fontFamily = f),
@@ -72,5 +127,8 @@ private fun Typography.inFamily(f: FontFamily) = Typography(
 
 @Composable
 fun DtTheme(dark: Boolean, content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (dark) darkScheme else lightScheme, typography = Typography().inFamily(Vazirmatn), content = content)
+    val colors = if (dark) DarkDt else LightDt
+    CompositionLocalProvider(LocalDt provides colors) {
+        MaterialTheme(colorScheme = scheme(colors), typography = Typography().inFamily(Vazirmatn), content = content)
+    }
 }

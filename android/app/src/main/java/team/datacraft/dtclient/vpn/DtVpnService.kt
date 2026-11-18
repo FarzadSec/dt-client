@@ -271,7 +271,7 @@ class DtVpnService : VpnService() {
     }
 
     private fun establishOpenVpn(spec: OpenVpn.TunSpec, settings: Settings): ParcelFileDescriptor? {
-        val builder = Builder().setSession("DT Client").setMtu(spec.mtu)
+        val builder = Builder().setSession("DT Connect").setMtu(spec.mtu)
         spec.address?.let { builder.addAddress(it.address, it.prefix) }
         spec.address6?.let { builder.addAddress(it.address, it.prefix) }
         for (route in spec.routes + spec.routes6) runCatching { builder.addRoute(route.address, route.prefix) }
@@ -295,7 +295,7 @@ class DtVpnService : VpnService() {
 
     private fun establish(dns: String, splitApps: Set<String>): ParcelFileDescriptor? {
         val builder = Builder()
-            .setSession("DT Client")
+            .setSession("DT Connect")
             .setMtu(MTU)
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
@@ -328,7 +328,7 @@ class DtVpnService : VpnService() {
     private fun notify(id: Int, level: String, body: String) {
         val manager = getSystemService(NotificationManager::class.java) ?: return
         if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(NOTICE_CHANNEL) == null) {
-            manager.createNotificationChannel(NotificationChannel(NOTICE_CHANNEL, "Notices", NotificationManager.IMPORTANCE_HIGH))
+            manager.createNotificationChannel(NotificationChannel(NOTICE_CHANNEL, if (Repo.settings.value.language == "fa") "اعلان‌ها" else "Notices", NotificationManager.IMPORTANCE_HIGH))
         }
         val fa = Repo.settings.value.language == "fa"
         val title = if (level == "critical") (if (fa) "اطلاعیه مهم" else "Important notice") else (if (fa) "اطلاعیه" else "Notice")
