@@ -259,6 +259,12 @@ jobs:
             cp "$apk" "release/DT-Client-$version-android-$abi.apk"
           done
           ls -la release
+      # The emulator's data partition needs several GB the builds above have used up.
+      - name: Make room for the emulator
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /tmp/hev /tmp/hev-obj
+          go clean -cache -modcache || true
+          df -h /
       - name: Allow the emulator hardware acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -271,6 +277,7 @@ jobs:
           api-level: 30
           arch: x86_64
           disable-animations: true
+          disk-size: 2048M
           script: gradle -p android connectedDebugAndroidTest -PappVersion=0.0.0
       - uses: actions/upload-artifact@v4
         with:

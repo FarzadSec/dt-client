@@ -2,7 +2,7 @@
 
 The VPN app of DataCraft Team. A customer signs in with the subscription link of their service and their username; the app then shows their account and servers and connects with the protocols the service offers.
 
-Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedora, RHEL, openSUSE, Arch and Manjaro; x64 and ARM64) and macOS 12 or later (Intel and Apple silicon). Android follows. iOS users keep using the subscription link in Streisand, Happ or other apps, and share the same device limit with the app.
+Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedora, RHEL, openSUSE, Arch and Manjaro; x64 and ARM64) macOS 12 or later (Intel and Apple silicon) and Android 5.0 or later (every processor family; see `android/README.md`). iOS users keep using the subscription link in Streisand, Happ or other apps, and share the same device limit with the app.
 
 ## Installing
 
@@ -14,6 +14,7 @@ Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedo
 | Arch, Manjaro, EndeavourOS | `DT-Client-<version>-linux-x64.pacman` (`aarch64` on ARM) | `sudo pacman -U ./DT-Client-<version>-linux-x64.pacman` |
 | macOS, Apple silicon | `DT-Client-<version>-mac-arm64.pkg` | Open it. Until the package is notarized macOS refuses the first time: open **System Settings → Privacy & Security** and press **Open Anyway**. |
 | macOS, Intel | `DT-Client-<version>-mac-x64.pkg` | As above. |
+| Android 5.0+ | `DT-Client-<version>-android-arm64-v8a.apk` (most phones), `armeabi-v7a` (older phones), `x86_64`/`x86` (emulators, a few tablets), or `universal` (any) | Open the APK and allow installing from that source once. |
 
 Each package installs the app and its helper service and removes both when uninstalled (`sudo apt remove dt-client`, `sudo dnf remove dt-client`, `sudo pacman -R dt-client`; on macOS `sudo "/Applications/DT Client.app/Contents/Resources/uninstall.sh"`). Nothing else is installed or left running. Every release lists the SHA-256 of each file in `SHA256SUMS.txt`.
 

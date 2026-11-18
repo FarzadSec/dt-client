@@ -8,5 +8,8 @@ Installers for every system are attached below. Check a download against `SHA256
 | Arch, Manjaro, EndeavourOS | `DT-Client-<version>-linux-x64.pacman` (`aarch64` for ARM) |
 | macOS 12+ on Apple silicon (M1 and later) | `DT-Client-<version>-mac-arm64.pkg` |
 | macOS 12+ on Intel | `DT-Client-<version>-mac-x64.pkg` |
+| Android 5.0+, most phones | `DT-Client-<version>-android-arm64-v8a.apk` |
+| Android, older 32-bit phones | `DT-Client-<version>-android-armeabi-v7a.apk` |
+| Android, any device | `DT-Client-<version>-android-universal.apk` |
 
 See the README for how to install on each system.
