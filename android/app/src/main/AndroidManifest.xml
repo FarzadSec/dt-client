@@ -13,13 +13,15 @@
         </intent>
     </queries>
 
+    <!-- Subscription links are often plain http on an IP (port 2096); Android 9+ refuses those without this. -->
     <application
         android:name=".DtApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="DT Client"
         android:supportsRtl="true"
-        android:theme="@style/Theme.DtClient">
+        android:theme="@style/Theme.DtClient"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".ui.MainActivity"

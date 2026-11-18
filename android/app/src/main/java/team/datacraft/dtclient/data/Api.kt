@@ -1,5 +1,6 @@
 package team.datacraft.dtclient.data
 
+import android.util.Log
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -37,12 +38,14 @@ object Api {
                 }
             }
         } catch (e: Exception) {
+            Log.w("DtApi", "$method ${url.substringAfterLast('/')}: $e")
             throw ApiException("network")
         }
         try {
             val status = try {
                 conn.responseCode
             } catch (e: Exception) {
+                Log.w("DtApi", "$method ${url.substringAfterLast('/')}: $e")
                 throw ApiException("network")
             }
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream

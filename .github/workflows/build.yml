@@ -229,6 +229,26 @@ jobs:
             "APP_CFLAGS=-O3 -DPKGNAME=team/datacraft/dtclient/vpn" "APP_LDFLAGS=-Wl,--build-id=none" -j4
           find android/app/src/main/jniLibs -type f ! -name '*.so' -delete
           find android/app/src/main/jniLibs -type f
+      # OpenSSL takes most of the build; the result is kept until build.sh (and its pinned versions) change.
+      - name: Restore OpenVPN for Android
+        id: openvpn-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/ovpn-jni
+          key: openvpn-android-${{ hashFiles('android/openvpn/build.sh') }}
+      - name: OpenVPN 2.7 for Android (GPLv2), with OpenSSL, LZ4 and LZO
+        if: steps.openvpn-cache.outputs.cache-hit != 'true'
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" bash android/openvpn/build.sh /tmp/ovpn-jni
+      - name: Keep OpenVPN for Android
+        if: steps.openvpn-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/ovpn-jni
+          key: openvpn-android-${{ hashFiles('android/openvpn/build.sh') }}
+      - name: Add OpenVPN to the app
+        run: |
+          cp -r /tmp/ovpn-jni/. android/app/src/main/jniLibs/
+          find android/app/src/main/jniLibs -name libovpnexec.so -exec ls -la {} +
       - name: Xray's geo files
         run: |
           node scripts/fetch-binaries.mjs linux x64
@@ -262,15 +282,19 @@ jobs:
       # The emulator's data partition needs several GB the builds above have used up.
       - name: Make room for the emulator
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /tmp/hev /tmp/hev-obj
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /tmp/hev /tmp/hev-obj /tmp/ovpn-android
           go clean -cache -modcache || true
           df -h /
+      # The emulator test connects through these (the emulator reaches this machine as 10.0.2.2).
+      - name: OpenVPN servers for the emulator test
+        run: bash android/openvpn/test-server.sh /tmp/ovpn-test
       - name: Allow the emulator hardware acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      # On an Android 11 emulator: the tunnel library registers its natives and Xray runs the app's config.
+      # On an Android 11 emulator: the tunnel library registers its natives, Xray runs the app's config,
+      # and the app connects through OpenVPN over TCP and UDP.
       - name: Run the engines on an emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -279,12 +303,17 @@ jobs:
           disable-animations: true
           disk-size: 2048M
           script: |
-            gradle -p android connectedDebugAndroidTest -PappVersion=0.1.0
+            gradle -p android connectedDebugAndroidTest -PappVersion=0.1.0 -Pandroid.testInstrumentationRunnerArguments.ovpnTcp=$(cat /tmp/ovpn-test/tcp.link) -Pandroid.testInstrumentationRunnerArguments.ovpnUdp=$(cat /tmp/ovpn-test/udp.link)
             adb install -r release/DT-Client-*-android-x86_64.apk
             adb shell am start -W -n team.datacraft.dtclient/.ui.MainActivity
             sleep 6
             adb exec-out screencap -p > android-welcome.png
             adb shell pidof team.datacraft.dtclient
+      - name: OpenVPN server logs
+        if: always()
+        run: |
+          d=$(cat /tmp/ovpn-test/dir 2>/dev/null) || exit 0
+          sudo tail -n 40 "$d"/server-*.log || true
       - uses: actions/upload-artifact@v4
         with:
           name: android-screenshot

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.system.OsConstants
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import java.io.File
@@ -27,13 +28,16 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import team.datacraft.dtclient.R
 import team.datacraft.dtclient.core.Core
+import team.datacraft.dtclient.data.Config
 import team.datacraft.dtclient.data.ConnState
 import team.datacraft.dtclient.data.Repo
+import team.datacraft.dtclient.data.Settings
 import team.datacraft.dtclient.data.Status
 import team.datacraft.dtclient.ui.MainActivity
 
 // Xray runs the panel's outbound behind a local SOCKS port; hev-socks5-tunnel carries the VPN
-// interface's packets to it. The app itself is left out of the VPN, so Xray's own connections leave directly.
+// interface's packets to it. OpenVPN runs as its own process and is handed the VPN interface (OpenVpn.kt).
+// The app itself is left out of the VPN, so the engines' own connections leave directly.
 class DtVpnService : VpnService() {
     companion object {
         const val ACTION_CONNECT = "team.datacraft.dtclient.CONNECT"
@@ -42,6 +46,7 @@ class DtVpnService : VpnService() {
         private const val FASTEST = -1
         private const val MTU = 8500
         private const val NOTICE_CHANNEL = "notices"
+        private const val OPENVPN_TIMEOUT_MS = 35_000L
 
         fun connect(context: Context, locationId: Int?) {
             context.startService(Intent(context, DtVpnService::class.java).setAction(ACTION_CONNECT).putExtra(EXTRA_LOCATION, locationId ?: FASTEST))
@@ -54,6 +59,7 @@ class DtVpnService : VpnService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tun: ParcelFileDescriptor? = null
+    @Volatile private var openvpn: OpenVpn? = null
     private var work: Job? = null
     private var refresher: Job? = null
 
@@ -90,6 +96,8 @@ class DtVpnService : VpnService() {
 
     override fun onDestroy() {
         refresher?.cancel()
+        openvpn?.let { runCatching { it.stop() } }
+        openvpn = null
         runCatching { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() }
         runCatching { tun?.close() }
         runCatching { Core.stop() }
@@ -104,6 +112,8 @@ class DtVpnService : VpnService() {
 
     private fun stopEngines() {
         refresher?.cancel()
+        openvpn?.let { runCatching { it.stop() } }
+        openvpn = null
         runCatching { if (TProxyService.TProxyIsRunning()) TProxyService.TProxyStopService() }
         runCatching { tun?.close() }
         tun = null
@@ -157,45 +167,119 @@ class DtVpnService : VpnService() {
         for (config in list) {
             if (!scope.isActive) return
             set(Status(ConnState.Connecting, locationId, config.locationId, config.name, config.protocol))
-            val port = freePort()
-            val json = XrayConfig.build(config.outbound ?: continue, port, settings.iranDirect, settings.adBlock, dns)
-            if (runCatching { Core.start(json) }.isFailure) continue
-            if (!probe(port)) {
-                runCatching { Core.stop() }
-                continue
+            val attempt = if (config.protocol == "openvpn") startOpenVpn(config, settings) else startXray(config, settings, dns)
+            when (attempt) {
+                Attempt.Failed -> continue
+                Attempt.Denied -> {
+                    set(Status(ConnState.Disconnected, locationId, error = "vpn_denied"))
+                    return
+                }
+                Attempt.Started -> {
+                    Repo.updateSettings { it.copy(locationId = locationId) }
+                    set(Status(ConnState.Connected, locationId, config.locationId, config.name, config.protocol, System.currentTimeMillis()))
+                    startRefresher()
+                    return
+                }
             }
-            val fd = establish(dns.first(), settings.splitApps)
-            if (fd == null) {
-                runCatching { Core.stop() }
-                set(Status(ConnState.Disconnected, locationId, error = "vpn_denied"))
-                return
-            }
-            tun = fd
-            val hevConfig = File(filesDir, "tunnel.yml")
-            hevConfig.writeText(
-                """
-                tunnel:
-                  mtu: $MTU
-                  ipv4: 172.19.0.1
-                  ipv6: 'fdfe:dcba:9876::1'
-                socks5:
-                  port: $port
-                  address: 127.0.0.1
-                  udp: 'udp'
-                misc:
-                  task-stack-size: 81920
-                """.trimIndent(),
-            )
-            if (!TProxyService.TProxyStartService(hevConfig.absolutePath, fd.fd)) {
-                stopEngines()
-                continue
-            }
-            Repo.updateSettings { it.copy(locationId = locationId) }
-            set(Status(ConnState.Connected, locationId, config.locationId, config.name, config.protocol, System.currentTimeMillis()))
-            startRefresher()
-            return
         }
         set(Status(ConnState.Disconnected, locationId, error = "all_failed"))
+    }
+
+    private enum class Attempt { Started, Failed, Denied }
+
+    private fun startXray(config: Config, settings: Settings, dns: List<String>): Attempt {
+        val outbound = config.outbound ?: return Attempt.Failed
+        val port = freePort()
+        val json = XrayConfig.build(outbound, port, settings.iranDirect, settings.adBlock, dns)
+        if (runCatching { Core.start(json) }.isFailure) return Attempt.Failed
+        if (!probe(port)) {
+            runCatching { Core.stop() }
+            return Attempt.Failed
+        }
+        val fd = establish(dns.first(), settings.splitApps)
+        if (fd == null) {
+            runCatching { Core.stop() }
+            return Attempt.Denied
+        }
+        tun = fd
+        val hevConfig = File(filesDir, "tunnel.yml")
+        hevConfig.writeText(
+            """
+            tunnel:
+              mtu: $MTU
+              ipv4: 172.19.0.1
+              ipv6: 'fdfe:dcba:9876::1'
+            socks5:
+              port: $port
+              address: 127.0.0.1
+              udp: 'udp'
+            misc:
+              task-stack-size: 81920
+            """.trimIndent(),
+        )
+        if (!TProxyService.TProxyStartService(hevConfig.absolutePath, fd.fd)) {
+            stopEngines()
+            return Attempt.Failed
+        }
+        return Attempt.Started
+    }
+
+    // OpenVPN brings the tunnel up itself and asks for the VPN interface on the way (openTun).
+    private suspend fun startOpenVpn(config: Config, settings: Settings): Attempt {
+        val profile = OpenVpnProfile.decode(config.link) ?: return Attempt.Failed
+        if (OpenVpnProfile.unsafeDirective(profile) != null) return Attempt.Failed
+        val session = OpenVpn(this, object : OpenVpn.Host {
+            override fun protect(fd: Int): Boolean = this@DtVpnService.protect(fd)
+            override fun openTun(spec: OpenVpn.TunSpec): ParcelFileDescriptor? = establishOpenVpn(spec, settings)
+        })
+        // Once up, OpenVPN reconnects by itself; the status follows, and only its exit ends the connection.
+        session.onReconnecting = { VpnState.status.value.takeIf { it.state == ConnState.Connected }?.let { set(it.copy(state = ConnState.Connecting)) } }
+        session.onReconnected = { VpnState.status.value.takeIf { it.state == ConnState.Connecting }?.let { set(it.copy(state = ConnState.Connected)) } }
+        session.onLost = {
+            scope.launch {
+                if (openvpn === session) {
+                    val locationId = VpnState.status.value.locationId
+                    stopEngines()
+                    set(Status(ConnState.Disconnected, locationId, error = "connection_lost"))
+                    stopSelf()
+                }
+            }
+        }
+        openvpn = session
+        return when (session.start(profile, OPENVPN_TIMEOUT_MS)) {
+            OpenVpn.Outcome.Connected -> Attempt.Started
+            OpenVpn.Outcome.VpnDenied -> {
+                openvpn = null
+                Attempt.Denied
+            }
+            else -> {
+                openvpn = null
+                Attempt.Failed
+            }
+        }
+    }
+
+    private fun establishOpenVpn(spec: OpenVpn.TunSpec, settings: Settings): ParcelFileDescriptor? {
+        val builder = Builder().setSession("DT Client").setMtu(spec.mtu)
+        spec.address?.let { builder.addAddress(it.address, it.prefix) }
+        spec.address6?.let { builder.addAddress(it.address, it.prefix) }
+        for (route in spec.routes + spec.routes6) runCatching { builder.addRoute(route.address, route.prefix) }
+        // With every route in the tunnel and no IPv6 in it, Android blocks IPv6 rather than let it leave
+        // around the tunnel; an IPv6 DNS server would let it through, so it is left out then.
+        val everything = spec.routes.any { it.prefix <= 1 }
+        val dns = if (settings.dns.isNotBlank()) XrayConfig.dnsServers(settings.dns) else spec.dns.ifEmpty { XrayConfig.defaultDns }
+        for (server in dns) {
+            if (everything && spec.address6 == null && server.contains(':')) continue
+            runCatching { builder.addDnsServer(server) }
+        }
+        spec.domain?.let { runCatching { builder.addSearchDomain(it) } }
+        if (!everything && spec.address6 == null) runCatching { builder.allowFamily(OsConstants.AF_INET6) }
+        runCatching { builder.addDisallowedApplication(packageName) }
+        for (app in settings.splitApps) runCatching { builder.addDisallowedApplication(app) }
+        if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        builder.setConfigureIntent(open)
+        return runCatching { builder.establish() }.getOrNull()
     }
 
     private fun establish(dns: String, splitApps: Set<String>): ParcelFileDescriptor? {

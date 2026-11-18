@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -500,7 +501,7 @@ private fun SettingsPage(t: Strings, p: Profile, settings: Settings) {
             Choice(t("appearance"), listOf("dark" to t("themeDark"), "light" to t("themeLight"), "system" to t("themeSystem")), settings.theme) { v -> Repo.updateSettings { it.copy(theme = v) } }
         }
         Group {
-            Choice(t("protocol"), listOf("auto" to t("auto"), "xray" to "Xray", "wireguard" to "WireGuard"), settings.protocol) { v -> Repo.updateSettings { it.copy(protocol = v) } }
+            Choice(t("protocol"), listOf("auto" to t("auto"), "xray" to "Xray", "wireguard" to "WireGuard", "openvpn" to "OpenVPN"), settings.protocol) { v -> Repo.updateSettings { it.copy(protocol = v) } }
             Toggle(t("iranDirect"), t("iranDirectHint"), settings.iranDirect) { v -> Repo.updateSettings { it.copy(iranDirect = v) } }
             Toggle(t("adBlock"), "", settings.adBlock) { v -> Repo.updateSettings { it.copy(adBlock = v) } }
         }
@@ -538,7 +539,8 @@ private fun Group(content: @Composable () -> Unit) {
 private fun Choice(title: String, options: List<Pair<String, String>>, value: String, onChange: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Four protocols do not fit a narrow phone side by side; the row scrolls.
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for ((key, label) in options) {
                 val on = key == value
                 Box(

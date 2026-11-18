@@ -24,15 +24,15 @@ A VPN needs administrator rights for the tunnel, routes, DNS and timezone, while
 
 What differs by system:
 
-| | Windows | Linux | macOS |
-| --- | --- | --- | --- |
-| Xray protocols and WireGuard | ✓ | ✓ | ✓ |
-| OpenVPN | bundled (2.6, wintun) | the system's `openvpn` package (installed with the app) | Homebrew's: `brew install openvpn` |
-| L2TP/IPsec | Windows' own client | NetworkManager with its L2TP plugin (`network-manager-l2tp`, `NetworkManager-l2tp` or `networkmanager-l2tp`, recommended by the package) | not offered: macOS sets up L2TP only from a profile the user installs by hand |
-| Kill switch, split tunneling, Iranian sites direct | ✓ | ✓ | ✓ |
-| WebRTC leak protection | Chrome, Edge, Brave policy | the same policy as a file in `/etc/…/policies/managed` | not offered |
-| Match timezone | `tzutil` | `timedatectl` | `systemsetup` |
-| Launch at startup | scheduled task | `~/.config/autostart` | login item |
+| | Windows | Linux | macOS | Android |
+| --- | --- | --- | --- | --- |
+| Xray protocols and WireGuard | ✓ | ✓ | ✓ | ✓ |
+| OpenVPN | bundled (2.6, wintun) | the system's `openvpn` package (installed with the app) | Homebrew's: `brew install openvpn` | bundled (2.7, built from source, see `android/README.md`) |
+| L2TP/IPsec | Windows' own client | NetworkManager with its L2TP plugin (`network-manager-l2tp`, `NetworkManager-l2tp` or `networkmanager-l2tp`, recommended by the package) | not offered: macOS sets up L2TP only from a profile the user installs by hand | not offered: apps cannot drive Android's own client, and Android 12 removed it |
+| Kill switch, split tunneling, Iranian sites direct | ✓ | ✓ | ✓ | Android's own kill switch, apps without VPN; Iranian sites direct on Xray and WireGuard |
+| WebRTC leak protection | Chrome, Edge, Brave policy | the same policy as a file in `/etc/…/policies/managed` | not offered | not offered |
+| Match timezone | `tzutil` | `timedatectl` | `systemsetup` | not offered |
+| Launch at startup | scheduled task | `~/.config/autostart` | login item | Android's Always-on VPN |
 
 ## How it works
 
