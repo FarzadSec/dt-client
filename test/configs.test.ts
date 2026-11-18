@@ -62,7 +62,7 @@ describe('xrayConfig', () => {
 
 describe('singboxTunConfig', () => {
   it('sends everything to the local proxy except the engines themselves', () => {
-    const cfg = singboxTunConfig({ os: 'windows', interfaceName: 'DT Client', socksPort: 20808, strictRoute: true }) as {
+    const cfg = singboxTunConfig({ os: 'windows', interfaceName: 'DT Connect', socksPort: 20808, strictRoute: true }) as {
       inbounds: { strict_route: boolean }[];
       outbounds: { tag: string; server_port?: number }[];
       route: { final: string; rules: Record<string, unknown>[] };

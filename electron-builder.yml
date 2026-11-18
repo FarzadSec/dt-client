@@ -1,6 +1,6 @@
 appId: team.datacraft.dtclient
-productName: DT Client
-copyright: Copyright © DataCraft Team
+productName: DT Connect
+copyright: Copyright © DataCraft
 directories:
   output: release
   buildResources: build
@@ -17,22 +17,28 @@ extraResources:
     filter: ['**/*', '!.gitkeep']
   - from: build/icon.png
     to: icon.png
+  - from: build/tray
+    to: tray
 npmRebuild: false
 afterPack: scripts/after-pack.cjs
+# dtconnect://login?sub=…&user=… links (the bot's sign-in link) open the app and sign in.
+protocols:
+  - name: DT Connect sign-in
+    schemes: [dtconnect]
 
 win:
   target: nsis
   icon: build/icon.ico
   requestedExecutionLevel: requireAdministrator
-  artifactName: DT-Client-Setup-${version}.exe
+  artifactName: DT-Connect-Setup-${version}.exe
 nsis:
   oneClick: false
   perMachine: true
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: DT Client
-  uninstallDisplayName: DT Client
+  shortcutName: DT Connect
+  uninstallDisplayName: DT Connect
   include: build/installer.nsh
 
 # Linux: the app runs as the user; the engines run in a root systemd service (dt-client-helper).
@@ -44,21 +50,24 @@ linux:
       arch: [x64, arm64]
     - target: pacman
       arch: [x64, arm64]
-  executableName: dt-client
+  executableName: dt-connect
   syncDesktopName: true
-  icon: build/icon.png
+  icon: build/icons
   category: Network
-  synopsis: DataCraft Team VPN client
-  description: The VPN app of DataCraft Team. Sign in with the subscription link of your service and your username.
-  maintainer: DataCraft Team <FarzadSec@users.noreply.github.com>
-  vendor: DataCraft Team
-  artifactName: DT-Client-${version}-linux-${arch}.${ext}
+  mimeTypes: [x-scheme-handler/dtconnect]
+  synopsis: DT Connect, the VPN app of DataCraft
+  description: The VPN app of DataCraft. Sign in with the subscription link of your service and your username, or the sign-in link from the bot.
+  maintainer: DataCraft <FarzadSec@users.noreply.github.com>
+  vendor: DataCraft
+  artifactName: DT-Connect-${version}-linux-${arch}.${ext}
   extraResources:
     - from: dist/helper
       to: helper
 deb:
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
+  # Before 1.0 the app was DT Client (package dt-client); installing DT Connect replaces it.
+  fpm: ['--conflicts', 'dt-client', '--replaces', 'dt-client']
   # electron-builder's defaults plus what Electron links that a minimal system lacks (sound, GBM, CUPS) and OpenVPN.
   # The t64 names first: Ubuntu 24.04 otherwise satisfies libasound2 with OSS's stand-in, which lacks ALSA's symbols.
   depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, 'libasound2t64 | libasound2', libgbm1, 'libcups2t64 | libcups2', openvpn]
@@ -67,22 +76,22 @@ rpm:
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
   depends: [gtk3, libnotify, nss, libXScrnSaver, (libXtst or libXtst6), xdg-utils, at-spi2-core, (libuuid or libuuid1), alsa-lib, mesa-libgbm, cups-libs, openvpn]
-  fpm: ['--rpm-tag', 'Recommends: NetworkManager-l2tp']
+  fpm: ['--rpm-tag', 'Recommends: NetworkManager-l2tp', '--conflicts', 'dt-client', '--replaces', 'dt-client']
 pacman:
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
   depends: [gtk3, nss, libnotify, libxss, libxtst, xdg-utils, at-spi2-core, util-linux-libs, libsecret, alsa-lib, mesa, libcups, openvpn]
-  fpm: ['--pacman-optional-depends', 'networkmanager-l2tp: L2TP connections']
+  fpm: ['--pacman-optional-depends', 'networkmanager-l2tp: L2TP connections', '--conflicts', 'dt-client', '--replaces', 'dt-client']
 
 # macOS: an installer package that also sets up the root LaunchDaemon (build/pkg-scripts).
 mac:
   # The architecture comes from the command line, one per run (npm run dist:mac): two pkg builds
   # in one run share the same intermediate component package and remove it under each other.
   target: pkg
-  icon: build/icon.png
+  icon: build/icon.icns
   category: public.app-category.utilities
   identity: null
-  artifactName: DT-Client-${version}-mac-${arch}.${ext}
+  artifactName: DT-Connect-${version}-mac-${arch}.${ext}
   minimumSystemVersion: '12.0'
   extraResources:
     - from: dist/helper

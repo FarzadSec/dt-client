@@ -56,10 +56,10 @@ if apparmor_status --enabled > /dev/null 2>&1; then
   fi
 fi
 
-# DT Client's helper: the root service that runs the VPN engines for the app.
-cat > /etc/systemd/system/dt-client-helper.service <<'UNIT'
+# DT Connect's helper: the root service that runs the VPN engines for the app.
+cat > /etc/systemd/system/dt-connect-helper.service <<'UNIT'
 [Unit]
-Description=DT Client VPN helper
+Description=DT Connect VPN helper
 Documentation=https://github.com/FarzadSec/dt-client
 After=network-online.target NetworkManager.service
 Wants=network-online.target
@@ -70,17 +70,17 @@ Environment=ELECTRON_RUN_AS_NODE=1
 ExecStart="/opt/${sanitizedProductName}/${executable}" "/opt/${sanitizedProductName}/resources/helper/helper.js"
 Restart=on-failure
 RestartSec=2
-RuntimeDirectory=dt-client
-StateDirectory=dt-client
+RuntimeDirectory=dt-connect
+StateDirectory=dt-connect
 StateDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target
 UNIT
-chmod 0644 /etc/systemd/system/dt-client-helper.service
+chmod 0644 /etc/systemd/system/dt-connect-helper.service
 
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload || true
-  systemctl enable dt-client-helper.service || true
-  systemctl restart dt-client-helper.service || true
+  systemctl enable dt-connect-helper.service || true
+  systemctl restart dt-connect-helper.service || true
 fi

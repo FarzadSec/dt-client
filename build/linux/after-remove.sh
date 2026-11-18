@@ -6,16 +6,16 @@ case "$1" in
 esac
 
 if [ -d /run/systemd/system ]; then
-  systemctl disable --now dt-client-helper.service >/dev/null 2>&1 || true
+  systemctl disable --now dt-connect-helper.service >/dev/null 2>&1 || true
 fi
-rm -f /etc/systemd/system/dt-client-helper.service
+rm -f /etc/systemd/system/dt-connect-helper.service
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload || true
 fi
-rm -rf /var/lib/dt-client
-rm -f /etc/opt/chrome/policies/managed/dt-client-webrtc.json /etc/chromium/policies/managed/dt-client-webrtc.json /etc/opt/edge/policies/managed/dt-client-webrtc.json /etc/brave/policies/managed/dt-client-webrtc.json
+rm -rf /var/lib/dt-connect
+rm -f /etc/opt/chrome/policies/managed/dt-connect-webrtc.json /etc/chromium/policies/managed/dt-connect-webrtc.json /etc/opt/edge/policies/managed/dt-connect-webrtc.json /etc/brave/policies/managed/dt-connect-webrtc.json
 if command -v nmcli >/dev/null 2>&1; then
-  nmcli connection delete id "DT Client L2TP" >/dev/null 2>&1 || true
+  nmcli connection delete id "DT Connect L2TP" >/dev/null 2>&1 || true
 fi
 
 # Delete the link to the binary

@@ -5,7 +5,7 @@ export interface L2tpAccount {
   psk: string;
 }
 
-export const l2tpConnectionName = 'DT Client L2TP';
+export const l2tpConnectionName = 'DT Connect L2TP';
 
 // l2tp://user:password@host?ipsec=1&psk=key#remark, as the panel writes it.
 export function l2tpAccount(link: string): L2tpAccount {

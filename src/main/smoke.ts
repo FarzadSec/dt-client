@@ -28,6 +28,6 @@ for (const [name, outbound] of Object.entries(outbounds)) {
   fs.writeFileSync(path.join(out, `xray-${name}.json`), JSON.stringify(xrayConfig(outbound, { socksPort: 20808, httpPort: 20809, iranDirect: true, adBlock: true, dns: ['9.9.9.9'] }), null, 2));
 }
 const os = osOf(process.platform);
-const tun = singboxTunConfig({ os, interfaceName: os === 'linux' ? 'dtclient0' : os === 'windows' ? 'DT Client' : undefined, socksPort: 20808, strictRoute: true, dns: '9.9.9.9', bypassApps: [os === 'windows' ? 'steam.exe' : 'steam'] });
+const tun = singboxTunConfig({ os, interfaceName: os === 'linux' ? 'dtconnect0' : os === 'windows' ? 'DT Connect' : undefined, socksPort: 20808, strictRoute: true, dns: '9.9.9.9', bypassApps: [os === 'windows' ? 'steam.exe' : 'steam'] });
 fs.writeFileSync(path.join(out, 'tun.json'), JSON.stringify(tun, null, 2));
 console.log(`wrote configs to ${out}`);

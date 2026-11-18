@@ -41,6 +41,12 @@ const api: DtApi = {
     ipcRenderer.on('signedOut', wrapped);
     return () => ipcRenderer.off('signedOut', wrapped);
   },
+  takeSignIn: () => invoke('takeSignIn'),
+  onSignInLink: (listener) => {
+    const wrapped = () => listener();
+    ipcRenderer.on('signInLink', wrapped);
+    return () => ipcRenderer.off('signInLink', wrapped);
+  },
 };
 
 contextBridge.exposeInMainWorld('dt', api);

@@ -5,7 +5,7 @@ import { l2tpConnectionName, type L2tpAccount } from '../configs/l2tp';
 import { run } from '../system/run';
 import type { SystemKit } from './kit';
 
-export const linuxTun = 'dtclient0';
+export const linuxTun = 'dtconnect0';
 export const linuxOpenvpnTun = 'dtvpn0';
 
 // nmcli splits vpn.data and vpn.secrets on commas, so a value may hold neither one nor a line break.
@@ -52,7 +52,7 @@ const l2tp = {
 
 // Chromium browsers read managed policies from these folders on Linux.
 const policyDirs = ['/etc/opt/chrome/policies/managed', '/etc/chromium/policies/managed', '/etc/opt/edge/policies/managed', '/etc/brave/policies/managed'];
-const policyFile = 'dt-client-webrtc.json';
+const policyFile = 'dt-connect-webrtc.json';
 
 export const linuxKit: SystemKit = {
   os: 'linux',

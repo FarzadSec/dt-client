@@ -7,7 +7,7 @@ const account = { host: 'vpn.example.com', username: 'dana@example.com', passwor
 describe('nmcliAddArgs', () => {
   it("adds an L2TP/IPsec connection for NetworkManager's l2tp plugin with the login stored", () => {
     expect(nmcliAddArgs(account)).toEqual([
-      'connection', 'add', 'type', 'vpn', 'con-name', 'DT Client L2TP', 'ifname', '--', 'vpn-type', 'l2tp',
+      'connection', 'add', 'type', 'vpn', 'con-name', 'DT Connect L2TP', 'ifname', '--', 'vpn-type', 'l2tp',
       'connection.autoconnect', 'no',
       'vpn.data', 'gateway=vpn.example.com, user=dana@example.com, password-flags=0, ipsec-enabled=yes, ipsec-psk-flags=0, refuse-eap=yes, refuse-pap=yes, refuse-chap=yes, refuse-mschap=yes',
       'vpn.secrets', "password=pa'ss word, ipsec-psk=shared-key-123",

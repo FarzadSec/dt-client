@@ -1,9 +1,9 @@
 #!/bin/sh
-# DT Client's helper: the root LaunchDaemon that runs the VPN engines for the app.
+# DT Connect's helper: the root LaunchDaemon that runs the VPN engines for the app.
 PLIST=/Library/LaunchDaemons/team.datacraft.dtclient.helper.plist
-APP="/Applications/DT Client.app"
-mkdir -p "/Library/Application Support/DT Client"
-chmod 700 "/Library/Application Support/DT Client"
+APP="/Applications/DT Connect.app"
+mkdir -p "/Library/Application Support/DT Connect"
+chmod 700 "/Library/Application Support/DT Connect"
 cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -13,7 +13,7 @@ cat > "$PLIST" <<PLISTEOF
   <string>team.datacraft.dtclient.helper</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$APP/Contents/MacOS/DT Client</string>
+    <string>$APP/Contents/MacOS/DT Connect</string>
     <string>$APP/Contents/Resources/helper/helper.js</string>
   </array>
   <key>EnvironmentVariables</key>
@@ -26,7 +26,7 @@ cat > "$PLIST" <<PLISTEOF
   <key>KeepAlive</key>
   <true/>
   <key>StandardErrorPath</key>
-  <string>/Library/Application Support/DT Client/helper.log</string>
+  <string>/Library/Application Support/DT Connect/helper.log</string>
 </dict>
 </plist>
 PLISTEOF

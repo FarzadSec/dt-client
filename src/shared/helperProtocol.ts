@@ -4,8 +4,8 @@ import type { Status } from './types';
 // On Linux and macOS the engines run in a root helper (a systemd service or a LaunchDaemon);
 // the app talks to it with one JSON message per line over this socket.
 export const helperSocket: Record<Exclude<Os, 'windows'>, string> = {
-  linux: '/run/dt-client/helper.sock',
-  macos: '/var/run/dt-client.sock',
+  linux: '/run/dt-connect/helper.sock',
+  macos: '/var/run/dt-connect.sock',
 };
 
 export const helperProtocolVersion = 1;

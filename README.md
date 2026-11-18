@@ -1,6 +1,20 @@
-# DT Client
+# DT Connect
 
-The VPN app of DataCraft Team. A customer signs in with the subscription link of their service and their username; the app then shows their account and servers and connects with the protocols the service offers.
+The VPN app of DataCraft (Persian: دی‌تی کانکت). A customer signs in with the subscription link of their service and their username; the app then shows their account and servers and connects with the protocols the service offers.
+
+## Signing in
+
+The DataCraft bot's delivery message carries both values and a **sign-in QR code**. Its content is a link:
+
+```
+dtconnect://login?sub=<subscription link, percent-encoded>&user=<username, percent-encoded>
+```
+
+- **Android**: *Scan sign-in QR code* on the welcome page opens the camera (ZXing, works without Google services); *Choose a QR picture* reads the QR code from a screenshot or the photo the bot sent, for a customer whose QR code is on the same phone. Tapping the link opens the app and signs in.
+- **Windows, Linux, macOS**: the app registers `dtconnect://`, so opening the link signs in; pasting it into the subscription link field fills both fields.
+- A plain subscription link (QR code or pasted) fills the link and asks for the username.
+
+Opening a link of another account while signed in asks before switching.
 
 Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedora, RHEL, openSUSE, Arch and Manjaro; x64 and ARM64) macOS 12 or later (Intel and Apple silicon) and Android 5.0 or later (every processor family; see `android/README.md`). iOS users keep using the subscription link in Streisand, Happ or other apps, and share the same device limit with the app.
 
@@ -8,19 +22,19 @@ Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedo
 
 | System | Installer | How |
 | --- | --- | --- |
-| Windows | `DT-Client-Setup-<version>.exe` | Run it. Windows SmartScreen asks once (More info → Run anyway) until the installer is code-signed. |
-| Debian, Ubuntu, Mint, Pop!_OS | `DT-Client-<version>-linux-amd64.deb` (`arm64` on ARM) | `sudo apt install ./DT-Client-<version>-linux-amd64.deb` |
-| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `DT-Client-<version>-linux-x86_64.rpm` (`aarch64` on ARM) | `sudo dnf install ./DT-Client-<version>-linux-x86_64.rpm` (openSUSE: `sudo zypper install …`) |
-| Arch, Manjaro, EndeavourOS | `DT-Client-<version>-linux-x64.pacman` (`aarch64` on ARM) | `sudo pacman -U ./DT-Client-<version>-linux-x64.pacman` |
-| macOS, Apple silicon | `DT-Client-<version>-mac-arm64.pkg` | Open it. Until the package is notarized macOS refuses the first time: open **System Settings → Privacy & Security** and press **Open Anyway**. |
-| macOS, Intel | `DT-Client-<version>-mac-x64.pkg` | As above. |
-| Android 5.0+ | `DT-Client-<version>-android-arm64-v8a.apk` (most phones), `armeabi-v7a` (older phones), `x86_64`/`x86` (emulators, a few tablets), or `universal` (any) | Open the APK and allow installing from that source once. |
+| Windows | `DT-Connect-Setup-<version>.exe` | Run it. Windows SmartScreen asks once (More info → Run anyway) until the installer is code-signed. |
+| Debian, Ubuntu, Mint, Pop!_OS | `DT-Connect-<version>-linux-amd64.deb` (`arm64` on ARM) | `sudo apt install ./DT-Connect-<version>-linux-amd64.deb` |
+| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `DT-Connect-<version>-linux-x86_64.rpm` (`aarch64` on ARM) | `sudo dnf install ./DT-Connect-<version>-linux-x86_64.rpm` (openSUSE: `sudo zypper install …`) |
+| Arch, Manjaro, EndeavourOS | `DT-Connect-<version>-linux-x64.pacman` (`aarch64` on ARM) | `sudo pacman -U ./DT-Connect-<version>-linux-x64.pacman` |
+| macOS, Apple silicon | `DT-Connect-<version>-mac-arm64.pkg` | Open it. Until the package is notarized macOS refuses the first time: open **System Settings → Privacy & Security** and press **Open Anyway**. |
+| macOS, Intel | `DT-Connect-<version>-mac-x64.pkg` | As above. |
+| Android 5.0+ | `DT-Connect-<version>-android-arm64-v8a.apk` (most phones), `armeabi-v7a` (older phones), `x86_64`/`x86` (emulators, a few tablets), or `universal` (any) | Open the APK and allow installing from that source once. |
 
-Each package installs the app and its helper service and removes both when uninstalled (`sudo apt remove dt-client`, `sudo dnf remove dt-client`, `sudo pacman -R dt-client`; on macOS `sudo "/Applications/DT Client.app/Contents/Resources/uninstall.sh"`). Nothing else is installed or left running. Every release lists the SHA-256 of each file in `SHA256SUMS.txt`.
+Each package installs the app and its helper service and removes both when uninstalled (`sudo apt remove dt-connect`, `sudo dnf remove dt-connect`, `sudo pacman -R dt-connect`; on macOS `sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"`). Nothing else is installed or left running. Every release lists the SHA-256 of each file in `SHA256SUMS.txt`.
 
 ### Linux and macOS: the helper
 
-A VPN needs administrator rights for the tunnel, routes, DNS and timezone, while the app's window should run as the user. So on Linux and macOS the engines run in a small root helper, the same program started without its window: a systemd service (`dt-client-helper`) on Linux and a LaunchDaemon (`team.datacraft.dtclient.helper`) on macOS. The app talks to it over a local socket (`/run/dt-client/helper.sock`, `/var/run/dt-client.sock`) with four requests: who are you, status, connect, disconnect. The helper checks what it is given, since anyone on the computer can reach the socket: OpenVPN profiles that would run programs, read files or open a control port are refused, Xray outbounds lose any file they would read, and DNS, timezone and program names must be plain values.
+A VPN needs administrator rights for the tunnel, routes, DNS and timezone, while the app's window should run as the user. So on Linux and macOS the engines run in a small root helper, the same program started without its window: a systemd service (`dt-connect-helper`) on Linux and a LaunchDaemon (`team.datacraft.dtclient.helper`) on macOS. The app talks to it over a local socket (`/run/dt-connect/helper.sock`, `/var/run/dt-connect.sock`) with four requests: who are you, status, connect, disconnect. The helper checks what it is given, since anyone on the computer can reach the socket: OpenVPN profiles that would run programs, read files or open a control port are refused, Xray outbounds lose any file they would read, and DNS, timezone and program names must be plain values.
 
 What differs by system:
 

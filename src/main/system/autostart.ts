@@ -7,8 +7,8 @@ import { app } from 'electron';
 import type { Os } from '../../shared/platform';
 import { run } from './run';
 
-const taskName = 'DT Client';
-const desktopFile = () => path.join(os.homedir(), '.config', 'autostart', 'dt-client.desktop');
+const taskName = 'DT Connect';
+const desktopFile = () => path.join(os.homedir(), '.config', 'autostart', 'dt-connect.desktop');
 
 export async function setAutostart(system: Os, enabled: boolean, exePath: string): Promise<void> {
   if (system === 'windows') {
@@ -19,7 +19,7 @@ export async function setAutostart(system: Os, enabled: boolean, exePath: string
     app.setLoginItemSettings({ openAtLogin: enabled, args: ['--hidden'] });
   } else if (enabled) {
     fs.mkdirSync(path.dirname(desktopFile()), { recursive: true });
-    fs.writeFileSync(desktopFile(), `[Desktop Entry]\nType=Application\nName=DT Client\nExec="${exePath}" --hidden\nIcon=dt-client\nX-GNOME-Autostart-enabled=true\n`);
+    fs.writeFileSync(desktopFile(), `[Desktop Entry]\nType=Application\nName=DT Connect\nExec="${exePath}" --hidden\nIcon=dt-connect\nX-GNOME-Autostart-enabled=true\n`);
   } else {
     fs.rmSync(desktopFile(), { force: true });
   }

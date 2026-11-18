@@ -1,11 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="DT Client">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#22d3ee"/>
-      <stop offset="1" stop-color="#6366f1"/>
-    </linearGradient>
-  </defs>
-  <rect width="100" height="100" rx="24" fill="url(#g)"/>
-  <path fill="#fff" fill-rule="evenodd" d="M15 30h12a21 21 0 0 1 0 42H15zM25 40v22h2a11 11 0 0 0 0-22z"/>
-  <path fill="#fff" d="M53 30h33v10H74.5v32h-10V40H53z"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DT Connect"><rect width="512" height="512" rx="116" fill="#0B2B40"/><g transform="translate(256 256) scale(0.78) translate(-266 -256)"><path d="M168 96 H240 A160 160 0 0 1 240 416 H168 A36 36 0 0 1 132 380 V132 A36 36 0 0 1 168 96 Z" fill="#FFFFFF"/><path d="M212 230C212 206.8 230.8 188 254 188C277.2 188 296 206.8 296 230C296 244.09 289.06 256.56 278.41 264.18L291.9 328.98Q292.1 329.96 291.91 330.93Q291.73 331.91 291.18 332.74Q290.64 333.57 289.81 334.13Q288.99 334.69 288.02 334.9Q287.51 335 287 335H221Q220.01 335 219.09 334.62Q218.17 334.24 217.46 333.54Q216.76 332.83 216.38 331.91Q216 330.99 216 330Q216 329.49 216.1 328.98L229.59 264.18C218.94 256.56 212 244.09 212 230Z" fill="#1FB6A6"/></g></svg>

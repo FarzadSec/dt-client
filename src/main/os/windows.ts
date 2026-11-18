@@ -38,5 +38,5 @@ export const windowsKit: SystemKit = {
   restoreZone,
   protectWebrtc,
   restoreWebrtc,
-  tunName: 'DT Client',
+  tunName: 'DT Connect',
 };

@@ -1,9 +1,9 @@
 {
-  "name": "dt-client",
-  "productName": "DT Client",
-  "version": "0.4.0",
-  "description": "DataCraft Team VPN client",
-  "author": "DataCraft Team",
+  "name": "dt-connect",
+  "productName": "DT Connect",
+  "version": "1.0.0",
+  "description": "DT Connect, the VPN app of DataCraft",
+  "author": "DataCraft",
   "license": "UNLICENSED",
   "private": true,
   "main": "dist/main/main.js",
@@ -44,6 +44,6 @@
     "windows-iana": "^5.1.0",
     "world-atlas": "^2.0.2"
   },
-  "desktopName": "dt-client.desktop",
+  "desktopName": "dt-connect.desktop",
   "homepage": "https://github.com/FarzadSec/dt-client"
 }

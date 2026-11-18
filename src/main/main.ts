@@ -7,6 +7,7 @@ import { addSpan, pushRecent } from '../shared/activity';
 import { engineOf, useOs } from '../shared/engines';
 import { helperSocket } from '../shared/helperProtocol';
 import { osOf } from '../shared/platform';
+import { parseSignIn, signInScheme, type SignInCode } from '../shared/signin';
 import type { AppProfile, PingResult, ProfileUpdate, Settings, SplitApp, Status } from '../shared/types';
 import { ApiError, AppApi } from './api';
 import { answersOnUdp, serverAddress } from './candidates';
@@ -24,11 +25,34 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
+// dtconnect://login?sub=…&user=… opens the app and signs in: on Windows and Linux the link comes as an
+// argument (of this start or of a second one), on macOS as an open-url event.
+let pendingSignIn: SignInCode | null = signInLinkIn(process.argv);
+
+function signInLinkIn(argv: string[]): SignInCode | null {
+  const link = argv.find((arg) => arg.toLowerCase().startsWith(`${signInScheme}:`));
+  return link ? parseSignIn(link) : null;
+}
+
+function takeSignInLink(code: SignInCode | null): void {
+  if (!code) return;
+  pendingSignIn = code;
+  if (!ready) return;
+  showWindow();
+  window?.webContents.send('signInLink');
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  takeSignInLink(parseSignIn(url));
+});
+
 const system = osOf(process.platform);
 useOs(system);
-const userAgent = `DTClient/${app.getVersion()} (${system})`;
+const userAgent = `DTConnect/${app.getVersion()} (${system})`;
 const binDir = app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(app.getAppPath(), 'resources', 'bin');
 const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(app.getAppPath(), 'build', 'icon.png');
+const trayDir = app.isPackaged ? path.join(process.resourcesPath, 'tray') : path.join(app.getAppPath(), 'build', 'tray');
 const titleBarHeight = 56;
 
 let window: BrowserWindow | null = null;
@@ -213,14 +237,14 @@ function applyTheme(settings: Settings): void {
 
 function paintWindowFrame(): void {
   const dark = nativeTheme.shouldUseDarkColors;
-  if (system === 'windows') window?.setTitleBarOverlay({ color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight });
-  window?.setBackgroundColor(dark ? '#111317' : '#f3f4f7');
+  if (system === 'windows') window?.setTitleBarOverlay({ color: dark ? '#07141d' : '#f2f5f7', symbolColor: dark ? '#c9d6e0' : '#0b2b40', height: titleBarHeight });
+  window?.setBackgroundColor(dark ? '#07141d' : '#f2f5f7');
 }
 
 // Windows draws its buttons over the app's own title bar, macOS its traffic lights; Linux keeps the system's frame.
 function windowChrome(dark: boolean): Partial<Electron.BrowserWindowConstructorOptions> {
   if (system === 'windows') {
-    return { titleBarStyle: 'hidden', titleBarOverlay: { color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight } };
+    return { titleBarStyle: 'hidden', titleBarOverlay: { color: dark ? '#07141d' : '#f2f5f7', symbolColor: dark ? '#c9d6e0' : '#0b2b40', height: titleBarHeight } };
   }
   if (system === 'macos') return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 20 } };
   return { autoHideMenuBar: true };
@@ -287,10 +311,10 @@ function showWindow(): void {
 function updateTray(status: Status): void {
   if (!tray) return;
   const connected = status.state === 'connected';
-  tray.setToolTip(connected ? `DT Client — ${status.configName ?? ''}` : 'DT Client');
+  tray.setToolTip(connected ? `DT Connect — ${status.configName ?? ''}` : 'DT Connect');
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Open DT Client', click: showWindow },
+      { label: 'Open DT Connect', click: showWindow },
       connected || status.blocking
         ? { label: 'Disconnect', click: () => void vpn.disconnect() }
         : { label: 'Connect', click: () => void connect(store.settings().locationId) },
@@ -308,9 +332,9 @@ function createWindow(show: boolean): void {
     minWidth: 980,
     minHeight: 660,
     show,
-    title: 'DT Client',
+    title: 'DT Connect',
     icon: iconPath,
-    backgroundColor: dark ? '#111317' : '#f3f4f7',
+    backgroundColor: dark ? '#07141d' : '#f2f5f7',
     ...windowChrome(dark),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -329,7 +353,23 @@ function createWindow(show: boolean): void {
   });
 }
 
-app.on('second-instance', showWindow);
+app.on('second-instance', (_event, argv) => {
+  showWindow();
+  takeSignInLink(signInLinkIn(argv));
+});
+
+// The mark in one colour: white on a dark taskbar, navy on a light one, a template image in the macOS menu bar.
+function trayImage(): Electron.NativeImage {
+  if (system === 'macos') {
+    const image = nativeImage.createFromPath(path.join(trayDir, 'trayTemplate.png'));
+    image.setTemplateImage(true);
+    return image;
+  }
+  const shade = system === 'linux' || nativeTheme.shouldUseDarkColors ? 'white' : 'navy';
+  const file = system === 'windows' ? `tray-${shade}.ico` : `tray-${shade}-24.png`;
+  const image = nativeImage.createFromPath(path.join(trayDir, file));
+  return image.isEmpty() ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }) : image;
+}
 
 app.whenReady().then(async () => {
   // Linux without a keyring has no safeStorage; the file is then only private to the user (0600).
@@ -350,6 +390,11 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = store.settings().theme;
   ready = true;
 
+  handle('takeSignIn', () => {
+    const code = pendingSignIn;
+    pendingSignIn = null;
+    return code;
+  });
   handle('session', () => {
     const s = store.session();
     return s ? { subLink: s.subLink, username: s.username } : null;
@@ -375,12 +420,16 @@ app.whenReady().then(async () => {
   setInterval(() => bookActivity(), 60_000);
   setInterval(() => void backgroundRefresh(), profileRefreshMs);
   powerMonitor.on('resume', () => setTimeout(() => void backgroundRefresh(), 15_000));
-  nativeTheme.on('updated', paintWindowFrame);
+  nativeTheme.on('updated', () => {
+    paintWindowFrame();
+    tray?.setImage(trayImage());
+  });
+  if (!app.isDefaultProtocolClient(signInScheme)) app.setAsDefaultProtocolClient(signInScheme);
 
-  tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));
+  tray = new Tray(trayImage());
   tray.on('click', showWindow);
   updateTray(vpn.status());
-  createWindow(!(process.argv.includes('--hidden') || store.settings().launchMinimized));
+  createWindow(!(process.argv.includes('--hidden') || store.settings().launchMinimized) || pendingSignIn !== null);
 
   if (store.session() && store.settings().connectOnStart) void connect(store.settings().locationId);
 });

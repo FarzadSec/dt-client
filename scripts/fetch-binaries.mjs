@@ -1,4 +1,4 @@
-// Downloads the engines DT Client runs into resources/bin/<os>-<arch> (CI):
+// Downloads the engines DT Connect runs into resources/bin/<os>-<arch> (CI):
 //   node scripts/fetch-binaries.mjs win x64 | linux x64 | linux arm64 | mac x64 | mac arm64
 // Xray and sing-box everywhere; on Windows also OpenVPN 2.6 and wintun (run there: it unpacks an MSI).
 // Linux and macOS use the system's OpenVPN. Xray's archives are checked against its published digests.
@@ -13,7 +13,7 @@ const arch = process.argv[3] ?? 'x64';
 if (!['win', 'linux', 'mac'].includes(target) || !['x64', 'arm64'].includes(arch)) throw new Error(`unknown target ${target} ${arch}`);
 const bin = path.resolve('resources/bin', `${target}-${arch}`);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-bin-'));
-const headers = { 'User-Agent': 'dt-client-build', Accept: 'application/vnd.github+json' };
+const headers = { 'User-Agent': 'dt-connect-build', Accept: 'application/vnd.github+json' };
 if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
 const versions = [];
 
@@ -24,7 +24,7 @@ async function json(url) {
 }
 
 async function download(url, file) {
-  const res = await fetch(url, { headers: { 'User-Agent': 'dt-client-build' }, redirect: 'follow' });
+  const res = await fetch(url, { headers: { 'User-Agent': 'dt-connect-build' }, redirect: 'follow' });
   if (!res.ok) throw new Error(`${url}: ${res.status}`);
   fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
   return file;
@@ -46,7 +46,7 @@ function unzip(zip, dest) {
 async function checkXrayDigest(rel, name, file) {
   const dgst = rel.assets.find((x) => x.name === `${name}.dgst`);
   if (!dgst) throw new Error(`${rel.tag_name}: no digest for ${name}`);
-  const text = Buffer.from(await (await fetch(dgst.browser_download_url, { headers: { 'User-Agent': 'dt-client-build' }, redirect: 'follow' })).arrayBuffer()).toString();
+  const text = Buffer.from(await (await fetch(dgst.browser_download_url, { headers: { 'User-Agent': 'dt-connect-build' }, redirect: 'follow' })).arrayBuffer()).toString();
   const want = /SHA2-256=\s*([0-9a-f]{64})/i.exec(text)?.[1];
   const got = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   if (!want || want.toLowerCase() !== got) throw new Error(`${name}: digest mismatch`);

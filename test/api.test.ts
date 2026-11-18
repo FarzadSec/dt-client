@@ -29,7 +29,7 @@ describe('appApiBase', () => {
 describe('AppApi', () => {
   it('sends the username and device and returns the token', async () => {
     const seen: { url?: string; init?: RequestInit } = {};
-    const api = new AppApi('https://s/sub/x/app/v1', 'DTClient/0.1.0', fakeFetch(200, { token: 'tok' }, seen));
+    const api = new AppApi('https://s/sub/x/app/v1', 'DTConnect/0.1.0', fakeFetch(200, { token: 'tok' }, seen));
     expect(await api.login('dana', device)).toBe('tok');
     expect(seen.url).toBe('https://s/sub/x/app/v1/login');
     expect(JSON.parse(String(seen.init?.body))).toEqual({ username: 'dana', ...device });

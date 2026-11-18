@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import { bannerNotices, noticeLog, unreadNotices } from '../shared/notices';
+import type { SignInCode } from '../shared/signin';
 import type { Activity, AppProfile, PingResult, ProfileUpdate, Settings, Status } from '../shared/types';
 import { BellIcon, GearIcon, GlobeIcon, HelpIcon, PinIcon, RefreshIcon, SearchIcon, UserIcon } from './components/Icons';
 import { NoticeBanners, NoticeCenter, Toast } from './components/Notices';
@@ -40,6 +41,7 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [pinging, setPinging] = useState(false);
   const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'bad' } | null>(null);
+  const [signInCode, setSignInCode] = useState<SignInCode | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const systemDark = useSystemDark();
 
@@ -136,6 +138,26 @@ export function App() {
     };
   }, [loadProfile, applyUpdate, signedOut]);
 
+  // A dtconnect:// link the app was opened with: signed out it signs in; signed in to another account, it asks first.
+  useEffect(() => {
+    if (signedIn === null || !settings) return;
+    const take = async () => {
+      const code = await window.dt.takeSignIn();
+      if (!code) return;
+      if (signedIn) {
+        const session = await window.dt.session();
+        if (session && session.subLink.trim() === code.subLink && (code.username === '' || code.username === session.username)) return;
+        if (!window.confirm(translator(settings.language)('switchAccount', { user: session?.username ?? '' }))) return;
+        await window.dt.disconnect();
+        await window.dt.logout();
+        signedOut('');
+      }
+      setSignInCode(code);
+    };
+    void take();
+    return window.dt.onSignInLink(() => void take());
+  }, [signedIn, settings, signedOut]);
+
   useEffect(() => {
     if (!signedIn) return;
     void refreshPings();
@@ -158,8 +180,10 @@ export function App() {
         t={t}
         settings={settings}
         reason={signOutReason}
+        code={signInCode}
         onLanguage={(language) => void saveSettings({ language })}
         onSignedIn={(p) => {
+          setSignInCode(null);
           setProfile(p);
           setSignedIn(true);
           setSignOutReason('');

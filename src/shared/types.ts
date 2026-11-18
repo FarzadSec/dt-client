@@ -1,3 +1,5 @@
+import type { SignInCode } from './signin';
+
 // The panel's app API (Manifold, <subscription link>/app/v1).
 export interface AppLocation {
   id: number;
@@ -171,4 +173,7 @@ export interface DtApi {
   // The profile the app refreshes by itself every 10 minutes; signedOut carries the panel's code.
   onProfile(listener: (update: ProfileUpdate) => void): () => void;
   onSignedOut(listener: (code: string) => void): () => void;
+  // A dtconnect:// sign-in link the app was opened with, taken once.
+  takeSignIn(): Promise<SignInCode | null>;
+  onSignInLink(listener: () => void): () => void;
 }

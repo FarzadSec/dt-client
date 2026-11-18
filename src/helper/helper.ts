@@ -17,7 +17,7 @@ if (os === 'windows') throw new Error('the helper is for Linux and macOS');
 useOs(os);
 
 const socketPath = helperSocket[os];
-const work = os === 'macos' ? '/Library/Application Support/DT Client/run' : '/var/lib/dt-client/run';
+const work = os === 'macos' ? '/Library/Application Support/DT Connect/run' : '/var/lib/dt-connect/run';
 fs.mkdirSync(work, { recursive: true, mode: 0o700 });
 const vpn = new Vpn({ bin: path.join(__dirname, '..', 'bin'), work }, os === 'macos' ? macosKit : linuxKit);
 const clients = new Set<net.Socket>();
@@ -78,7 +78,7 @@ fs.rmSync(socketPath, { force: true });
 server.listen(socketPath, () => {
   // The app runs as whichever user is signed in; what it may ask for is checked above.
   fs.chmodSync(socketPath, 0o666);
-  console.log(`DT Client helper listening on ${socketPath}`);
+  console.log(`DT Connect helper listening on ${socketPath}`);
 });
 
 async function shutdown(): Promise<void> {
