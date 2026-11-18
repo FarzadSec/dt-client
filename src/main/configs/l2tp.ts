@@ -21,20 +21,9 @@ export function l2tpAccount(link: string): L2tpAccount {
   return account;
 }
 
-function psQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
+// Read by build/windows/l2tp-connection.ps1: the values reach PowerShell as data, never as script text.
+export const l2tpScriptFile = 'l2tp-connection.ps1';
 
-// Windows' own L2TP/IPsec client does the connecting; rasdial dials what this adds.
-export function addConnectionScript(account: L2tpAccount, name = l2tpConnectionName): string {
-  return [
-    "$ErrorActionPreference = 'Stop'",
-    `Remove-VpnConnection -Name ${psQuote(name)} -Force -ErrorAction SilentlyContinue`,
-    `Add-VpnConnection -Name ${psQuote(name)} -ServerAddress ${psQuote(account.host)} -TunnelType L2tp ` +
-      `-L2tpPsk ${psQuote(account.psk)} -AuthenticationMethod MSChapv2 -EncryptionLevel Optional -Force`,
-  ].join('\n');
-}
-
-export function encodedCommand(script: string): string {
-  return Buffer.from(script, 'utf16le').toString('base64');
+export function l2tpScriptEnv(account: L2tpAccount, name = l2tpConnectionName): Record<string, string> {
+  return { DT_L2TP_NAME: name, DT_L2TP_SERVER: account.host, DT_L2TP_PSK: account.psk };
 }

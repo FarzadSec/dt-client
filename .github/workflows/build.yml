@@ -87,6 +87,18 @@ jobs:
           if ($v -notmatch 'OpenVPN 2\.6') { exit 1 }
       - name: Build the installer
         run: npx electron-builder --win nsis --x64 --publish never
+      # The packaged script, run the way the app runs it; a second run must replace the first connection.
+      - name: Add the L2TP connection from the packaged script
+        shell: powershell
+        run: |
+          $res = 'release\win-unpacked\resources'
+          if (-not (Test-Path "$res\bin\xray.exe")) { Write-Output 'engines missing from the package'; exit 1 }
+          node dist/l2tp-check.js "$res\l2tp-connection.ps1"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $c = Get-VpnConnection -Name 'DT Connect L2TP'
+          $c | Format-List Name, ServerAddress, TunnelType, AuthenticationMethod, L2tpIPsecAuth
+          if ($c.ServerAddress -ne 'vpn.example.com' -or "$($c.TunnelType)" -ne 'L2tp') { exit 1 }
+          Remove-VpnConnection -Name 'DT Connect L2TP' -Force
       - uses: actions/upload-artifact@v4
         with:
           name: DT-Connect-Windows

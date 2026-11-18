@@ -1,8 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { candidates, serverAddress } from '../src/main/candidates';
 import { bestPing, usableLocationIds } from '../src/shared/engines';
-import { addConnectionScript, encodedCommand, l2tpAccount } from '../src/main/configs/l2tp';
+import { l2tpAccount, l2tpScriptEnv, l2tpScriptFile } from '../src/main/configs/l2tp';
 import { openvpnArgs, openvpnProfile } from '../src/main/configs/openvpn';
 import { windowsZone } from '../src/main/system/zones';
 import type { AppProfile } from '../src/shared/types';
@@ -87,13 +90,17 @@ describe('OpenVPN', () => {
 });
 
 describe('L2TP', () => {
-  it('reads the account and quotes it for PowerShell', () => {
+  it('reads the account from the link', () => {
     const account = l2tpAccount(l2tpLink);
     expect(account).toEqual({ host: 'vpn.example.com', username: 'dana@example.com', password: "pa'ss", psk: 'shared-key-123' });
-    const script = addConnectionScript({ ...account, psk: "k'ey" });
-    expect(script).toContain("-L2tpPsk 'k''ey'");
-    expect(script).toContain("-ServerAddress 'vpn.example.com' -TunnelType L2tp");
-    expect(Buffer.from(encodedCommand(script), 'base64').toString('utf16le')).toBe(script);
+  });
+
+  it('gives the Windows script every value it reads, by the names it reads them', () => {
+    const script = fs.readFileSync(path.join(__dirname, '..', 'build', 'windows', l2tpScriptFile), 'utf8');
+    const read = [...new Set([...script.matchAll(/\$env:(\w+)/g)].map((m) => m[1]))].sort();
+    const env = l2tpScriptEnv({ host: 'vpn.example.com', username: 'dana', password: 'p', psk: "k'ey" });
+    expect(Object.keys(env).sort()).toEqual(read);
+    expect(env).toEqual({ DT_L2TP_NAME: 'DT Connect L2TP', DT_L2TP_SERVER: 'vpn.example.com', DT_L2TP_PSK: "k'ey" });
   });
 });
 

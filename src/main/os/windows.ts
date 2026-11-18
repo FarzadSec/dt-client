@@ -1,19 +1,28 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { addConnectionScript, l2tpConnectionName, type L2tpAccount } from '../configs/l2tp';
+import { app } from 'electron';
+
+import { l2tpConnectionName, l2tpScriptEnv, l2tpScriptFile, type L2tpAccount } from '../configs/l2tp';
 import { allowL2tpBehindNat } from '../system/l2tpNat';
-import { powershell, run } from '../system/run';
+import { powershellFile, run } from '../system/run';
 import { applyZone, restoreZone } from '../system/timezone';
 import { protectWebrtc, restoreWebrtc } from '../system/webrtc';
 import type { SystemKit } from './kit';
+
+const l2tpScript = () =>
+  app.isPackaged ? path.join(process.resourcesPath, l2tpScriptFile) : path.join(app.getAppPath(), 'build', 'windows', l2tpScriptFile);
+
+export function addL2tpConnection(account: L2tpAccount, script = l2tpScript()) {
+  return powershellFile(script, l2tpScriptEnv(account));
+}
 
 // Windows' own L2TP/IPsec client: a connection added with Add-VpnConnection, dialled with rasdial.
 const l2tp = {
   async connect(account: L2tpAccount) {
     const rebootNeeded = await allowL2tpBehindNat();
     const notice = rebootNeeded ? 'reboot_for_l2tp' : undefined;
-    if ((await powershell(addConnectionScript(account))).code !== 0) return { ok: false, notice };
+    if ((await addL2tpConnection(account)).code !== 0) return { ok: false, notice };
     const dial = await run('rasdial.exe', [l2tpConnectionName, account.username, account.password], 90_000);
     return { ok: dial.code === 0, notice };
   },

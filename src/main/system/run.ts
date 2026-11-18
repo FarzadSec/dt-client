@@ -7,9 +7,9 @@ export interface RunResult {
 }
 
 // Arguments go to the program as a list: nothing passes through a shell.
-export function run(command: string, args: string[], timeoutMs = 30_000): Promise<RunResult> {
+export function run(command: string, args: string[], timeoutMs = 30_000, env?: Record<string, string>): Promise<RunResult> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { windowsHide: true });
+    const child = spawn(command, args, { windowsHide: true, env: env ? { ...process.env, ...env } : undefined });
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(() => child.kill(), timeoutMs);
@@ -26,9 +26,9 @@ export function run(command: string, args: string[], timeoutMs = 30_000): Promis
   });
 }
 
-export function powershell(script: string, timeoutMs = 60_000): Promise<RunResult> {
-  const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], timeoutMs);
+// A script file from the app's own folder, its values in the environment: no encoded command.
+export function powershellFile(file: string, env: Record<string, string>, timeoutMs = 60_000): Promise<RunResult> {
+  return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], timeoutMs, env);
 }
 
 export async function regQuery(key: string, value: string): Promise<string | null> {
