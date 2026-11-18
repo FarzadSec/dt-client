@@ -309,6 +309,14 @@ jobs:
             sleep 6
             adb exec-out screencap -p > android-welcome.png
             adb shell pidof team.datacraft.dtclient
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-test-results
+          path: |
+            android/app/build/outputs/androidTest-results
+            android/app/build/reports/androidTests
+          if-no-files-found: ignore
       - name: OpenVPN server logs
         if: always()
         run: |

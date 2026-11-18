@@ -83,6 +83,24 @@ class OpenVpnTest {
         assertEquals(OpenVpn.Route("128.0.0.0", 1), OpenVpn.network("128.0.0.0", 1))
     }
 
+    // OpenVPN on its own with the app's prepared profile: it must come up and open its management socket.
+    @Test
+    fun openVpnStartsWithTheAppsProfileAndOpensItsManagementSocket() {
+        val link = InstrumentationRegistry.getArguments().getString("ovpnTcp")
+        assumeTrue("no test server", !link.isNullOrEmpty())
+        val dir = java.io.File(context.noBackupFilesDir, "openvpn-test").apply { mkdirs() }
+        val socket = java.io.File(dir, "mgmt").apply { delete() }
+        val conf = java.io.File(dir, "profile.ovpn")
+        conf.writeText(OpenVpnProfile.prepare(OpenVpnProfile.decode(link!!)!!, socket.absolutePath).config)
+        val proc = ProcessBuilder(OpenVpn.binary(context).absolutePath, "--config", conf.absolutePath).directory(dir).redirectErrorStream(true).start()
+        val output = StringBuilder()
+        val reader = Thread { runCatching { proc.inputStream.bufferedReader().forEachLine { synchronized(output) { output.append(it).append(" | ") } } } }.apply { start() }
+        val opened = waitFor(10_000) { socket.exists() }
+        proc.destroy()
+        reader.join(3000)
+        assertTrue("no management socket: ${synchronized(output) { output.toString() }}", opened)
+    }
+
     @Test
     fun connectsThroughOpenVpnOverTcp() = connectThrough("ovpnTcp", "10.8.0.1")
 
@@ -119,8 +137,8 @@ class OpenVpnTest {
             }
             val status = VpnState.status.value
             // On failure the app's own log (OpenVPN's output included) says why.
-            val log = if (status.state == ConnState.Connected) "" else shell("logcat -d -v brief --pid=${android.os.Process.myPid()}").lines().filter { it.isNotBlank() }.takeLast(60).joinToString("\n")
-            assertEquals("states: $trail\n$log", ConnState.Connected, status.state)
+            val log = if (status.state == ConnState.Connected) "" else shell("logcat -d -v brief --pid=${android.os.Process.myPid()}").lines().filter { it.isNotBlank() }.takeLast(60).joinToString(" | ")
+            assertEquals("states: $trail | $log", ConnState.Connected, status.state)
             assertEquals("openvpn", status.protocol)
 
             // The shell is not left out of the VPN as the app is: its ping goes through the tunnel to the server.
