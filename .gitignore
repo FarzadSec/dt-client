@@ -12,3 +12,4 @@ android/app/src/main/jniLibs/
 android/app/src/main/assets/*.dat
 android/core/go.sum
 android/local.properties
+smoke/
