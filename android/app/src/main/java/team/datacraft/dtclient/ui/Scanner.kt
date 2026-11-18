@@ -168,7 +168,7 @@ private fun ScanFrame(modifier: Modifier) {
             val path = androidx.compose.ui.graphics.Path().apply {
                 moveTo(pts[0].x, pts[0].y)
                 lineTo(pts[1].x, pts[1].y)
-                quadraticBezierTo(if (pts[1].x == pts[0].x) pts[1].x else pts[2].x, if (pts[1].x == pts[0].x) pts[2].y else pts[1].y, pts[2].x, pts[2].y)
+                quadraticTo(if (pts[1].x == pts[0].x) pts[1].x else pts[2].x, if (pts[1].x == pts[0].x) pts[2].y else pts[1].y, pts[2].x, pts[2].y)
                 lineTo(pts[3].x, pts[3].y)
             }
             drawPath(path, Palette.teal, style = stroke)

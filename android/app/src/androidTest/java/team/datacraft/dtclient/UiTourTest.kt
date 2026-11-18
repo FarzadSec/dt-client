@@ -12,7 +12,6 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -59,10 +58,21 @@ class UiTourTest {
         return done()
     }
 
+    // What is on screen, as UiAutomator sees it: every text and description, for a failure message.
+    private fun onScreen(): String {
+        val out = java.io.ByteArrayOutputStream()
+        runCatching { device.dumpWindowHierarchy(out) }
+        val xml = out.toString("UTF-8")
+        return Regex("(?:text|content-desc)=\"([^\"]+)\"").findAll(xml).map { it.groupValues[1] }.distinct().joinToString(" | ")
+    }
+
+    private fun see(what: String, selector: androidx.test.uiautomator.BySelector, ms: Long = 10_000) {
+        if (!device.wait(Until.hasObject(selector), ms)) throw AssertionError("no $what on screen; it shows: ${onScreen()}")
+    }
+
     private fun tap(desc: String) {
-        val node = device.wait(Until.findObject(By.desc(desc)), 5000)
-        assertNotNull("no \"$desc\" on screen", node)
-        node.click()
+        see("\"$desc\"", By.desc(desc), 5000)
+        device.findObject(By.desc(desc)).click()
     }
 
     @Test
@@ -76,10 +86,10 @@ class UiTourTest {
         assertNull("VPN consent", VpnService.prepare(context))
 
         ActivityScenario.launch(MainActivity::class.java).use {
-            assertTrue(device.wait(Until.hasObject(By.text(fa("logIn"))), 10_000))
+            see("the welcome page's Log in", By.text(fa("logIn")), 15_000)
             shot("01-welcome")
             device.findObject(By.text(fa("logIn"))).click()
-            assertTrue(device.wait(Until.hasObject(By.text(fa("signInTitle"))), 5000))
+            see("the sign-in form", By.text(fa("signInTitle")))
             shot("02-sign-in")
 
             // What scanning the bot's QR code or tapping its link does: the app opens with both values.
@@ -87,7 +97,7 @@ class UiTourTest {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).setPackage(context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             assertTrue("signed in by the link", waitFor(20_000) { Repo.signedIn.value })
             assertEquals("demo-user", Repo.lastUsername())
-            assertTrue(device.wait(Until.hasObject(By.desc(fa("searchLocations"))), 10_000))
+            see("the home page's search", By.desc(fa("searchLocations")))
             shot("03-home")
             device.swipe(device.displayWidth / 2, device.displayHeight * 3 / 4, device.displayWidth / 2, device.displayHeight / 4, 40)
             shot("04-home-plan")
@@ -104,21 +114,27 @@ class UiTourTest {
             shot("09-account")
             tap(fa("home"))
             tap(fa("allLocations"))
-            assertTrue(device.wait(Until.hasObject(By.text(Geo.name(context, "US", "fa"))), 5000))
-            device.findObject(By.text(Geo.name(context, "US", "fa"))).click()
+            see("Fastest location", By.text(fa("fastest")))
             shot("10-locations")
+            // The search reads English names too; a country with several cities opens to list them.
+            device.findObject(By.clazz("android.widget.EditText")).text = "united"
+            see("the United States in the results", By.text(Geo.name(context, "US", "fa")))
+            see("New York under it", By.text("New York"))
+            shot("11-search")
+            device.findObject(By.clazz("android.widget.EditText")).text = ""
 
+            see("Fastest location", By.text(fa("fastest")))
             device.findObject(By.text(fa("fastest"))).click()
-            assertTrue("connected", waitFor(60_000) { VpnState.status.value.state == ConnState.Connected })
-            shot("11-connected")
+            assertTrue("connected: ${VpnState.status.value}", waitFor(60_000) { VpnState.status.value.state == ConnState.Connected })
+            shot("12-connected")
 
             Repo.updateSettings { s -> s.copy(language = "en") }
-            shot("12-connected-en")
+            shot("13-connected-en")
             Repo.updateSettings { s -> s.copy(theme = "light") }
-            shot("13-connected-light")
+            shot("14-connected-light")
             DtVpnService.disconnect(context)
-            assertTrue(waitFor(15_000) { VpnState.status.value.state == ConnState.Disconnected })
-            shot("14-disconnected-light")
+            assertTrue("disconnected: ${VpnState.status.value}", waitFor(15_000) { VpnState.status.value.state == ConnState.Disconnected })
+            shot("15-disconnected-light")
             Repo.updateSettings { Settings() }
         }
     }

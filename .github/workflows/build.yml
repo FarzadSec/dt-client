@@ -362,6 +362,14 @@ jobs:
         run: |
           tail -n 40 /tmp/proto-test/panel.log /tmp/proto-test/error.log /tmp/proto-test/access.log 2>/dev/null || true
           sudo wg show wgtest 2>/dev/null || true
+      # Also in the log as base64 (between SCREEN markers), for whoever can read the log but not artifacts.
+      - name: Screens in the log
+        if: always()
+        run: |
+          for f in android-screens/*.png android-screens/*/*.png; do
+            [ -f "$f" ] || continue
+            echo "SCREEN-BEGIN $(basename "$f")"; base64 -w0 "$f"; echo; echo "SCREEN-END"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
