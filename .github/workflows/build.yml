@@ -312,4 +312,9 @@ jobs:
           cd out
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-          gh release create "$GITHUB_REF_NAME" * --title "DT Client $GITHUB_REF_NAME" --notes-file ../RELEASE_NOTES.md
+          # A release made on GitHub's Releases page creates the tag first; its files are added to it.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" * --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" * --title "DT Client $GITHUB_REF_NAME" --notes-file ../RELEASE_NOTES.md
+          fi
