@@ -64,8 +64,8 @@ jobs:
         run: npx electron-builder --win nsis --x64 --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: DT-Client-Windows
-          path: release/DT-Client-Setup-*.exe
+          name: DT-Connect-Windows
+          path: release/DT-Connect-Setup-*.exe
           if-no-files-found: error
 
   linux:
@@ -100,15 +100,17 @@ jobs:
         run: |
           ls -la release
           sudo apt-get install -y "$(ls ./release/*.deb | grep -v arm64)"
-          systemctl is-active dt-client-helper
-          node scripts/helper-hello.mjs /run/dt-client/helper.sock
-          test -x "/opt/DT Client/resources/bin/xray"
-          sudo apt-get remove -y dt-client
-          if systemctl is-active --quiet dt-client-helper; then echo "helper still running"; exit 1; fi
-          test ! -e /etc/systemd/system/dt-client-helper.service
+          systemctl is-active dt-connect-helper
+          node scripts/helper-hello.mjs /run/dt-connect/helper.sock
+          test -x "/opt/DT Connect/resources/bin/xray"
+          test -f "/opt/DT Connect/resources/tray/tray-white-24.png"
+          grep -q 'x-scheme-handler/dtconnect' /usr/share/applications/dt-connect.desktop
+          sudo apt-get remove -y dt-connect
+          if systemctl is-active --quiet dt-connect-helper; then echo "helper still running"; exit 1; fi
+          test ! -e /etc/systemd/system/dt-connect-helper.service
       - uses: actions/upload-artifact@v4
         with:
-          name: DT-Client-Linux
+          name: DT-Connect-Linux
           path: |
             release/*.deb
             release/*.rpm
@@ -135,12 +137,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: DT-Client-Linux
+          name: DT-Connect-Linux
           path: pkg
       - run: ls pkg
       - run: ${{ matrix.install }}
-      - run: test -x "/opt/DT Client/dt-client" && test -f "/opt/DT Client/resources/helper/helper.js" && test -f /etc/systemd/system/dt-client-helper.service
-      - run: ELECTRON_RUN_AS_NODE=1 "/opt/DT Client/dt-client" -e "console.log(process.versions.node)"
+      - run: test -x "/opt/DT Connect/dt-connect" && test -f "/opt/DT Connect/resources/helper/helper.js" && test -f /etc/systemd/system/dt-connect-helper.service
+      - run: ELECTRON_RUN_AS_NODE=1 "/opt/DT Connect/dt-connect" -e "console.log(process.versions.node)"
 
   macos:
     needs: test
@@ -173,16 +175,17 @@ jobs:
           npx electron-builder --mac --arm64 --publish never
       - name: Install the Apple silicon package, check the helper answers
         run: |
-          sudo installer -pkg release/DT-Client-*-mac-arm64.pkg -target /
-          codesign --verify --deep --strict "/Applications/DT Client.app"
+          sudo installer -pkg release/DT-Connect-*-mac-arm64.pkg -target /
+          codesign --verify --deep --strict "/Applications/DT Connect.app"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "/Applications/DT Connect.app/Contents/Info.plist" | grep -qx dtconnect
           sleep 3
           sudo launchctl print system/team.datacraft.dtclient.helper | head -20
-          node scripts/helper-hello.mjs /var/run/dt-client.sock
-          sudo "/Applications/DT Client.app/Contents/Resources/uninstall.sh"
-          test ! -e "/Applications/DT Client.app"
+          node scripts/helper-hello.mjs /var/run/dt-connect.sock
+          sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"
+          test ! -e "/Applications/DT Connect.app"
       - uses: actions/upload-artifact@v4
         with:
-          name: DT-Client-macOS
+          name: DT-Connect-macOS
           path: release/*.pkg
           if-no-files-found: error
 
@@ -272,11 +275,11 @@ jobs:
           DT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gradle -p android assembleRelease -PappVersion="$version" --stacktrace
+          gradle -p android testReleaseUnitTest assembleRelease -PappVersion="$version" --stacktrace
           mkdir -p release
           for apk in android/app/build/outputs/apk/release/*.apk; do
             abi=$(basename "$apk" .apk | sed 's/^app-//; s/-release$//')
-            cp "$apk" "release/DT-Client-$version-android-$abi.apk"
+            cp "$apk" "release/DT-Connect-$version-android-$abi.apk"
           done
           ls -la release
       # The emulator's data partition needs several GB the builds above have used up.
@@ -288,6 +291,13 @@ jobs:
       # The emulator test connects through these (the emulator reaches this machine as 10.0.2.2).
       - name: OpenVPN servers for the emulator test
         run: bash android/openvpn/test-server.sh /tmp/ovpn-test
+      # A server per Xray protocol and a kernel WireGuard server, and a test panel whose profile points at them.
+      - name: Protocol servers and a test panel for the emulator test
+        run: |
+          bash android/test/protocol-servers.sh resources/bin/linux-x64/xray /tmp/proto-test
+          nohup node android/test/mock-panel.mjs /tmp/proto-test 2096 > /tmp/proto-test/panel.log 2>&1 &
+          sleep 1
+          curl -sf -X POST http://127.0.0.1:2096/sub/demo/app/v1/login -d '{"username":"demo-user","deviceId":"ci"}'
       - name: Allow the emulator hardware acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -303,8 +313,8 @@ jobs:
           disable-animations: true
           disk-size: 2048M
           script: |
-            gradle -p android connectedDebugAndroidTest -PappVersion=0.1.0 -Pandroid.testInstrumentationRunnerArguments.ovpnTcp=$(cat /tmp/ovpn-test/tcp.link) -Pandroid.testInstrumentationRunnerArguments.ovpnUdp=$(cat /tmp/ovpn-test/udp.link)
-            adb install -r release/DT-Client-*-android-x86_64.apk
+            gradle -p android connectedDebugAndroidTest -PappVersion=0.1.0 -Pandroid.testInstrumentationRunnerArguments.ovpnTcp=$(cat /tmp/ovpn-test/tcp.link) -Pandroid.testInstrumentationRunnerArguments.ovpnUdp=$(cat /tmp/ovpn-test/udp.link) -Pandroid.testInstrumentationRunnerArguments.panel=http://10.0.2.2:2096/sub/demo ; s=$? ; adb pull /data/local/tmp/screens android-screens || true ; exit $s
+            adb install -r release/DT-Connect-*-android-x86_64.apk
             adb shell am start -W -n team.datacraft.dtclient/.ui.MainActivity
             sleep 6
             adb exec-out screencap -p > android-welcome.png
@@ -322,13 +332,22 @@ jobs:
         run: |
           d=$(cat /tmp/ovpn-test/dir 2>/dev/null) || exit 0
           sudo tail -n 40 "$d"/server-*.log || true
+      - name: Protocol server and test panel logs
+        if: always()
+        run: |
+          tail -n 40 /tmp/proto-test/panel.log /tmp/proto-test/error.log /tmp/proto-test/access.log 2>/dev/null || true
+          sudo wg show wgtest 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-screens
+          path: |
+            android-welcome.png
+            android-screens
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
-          name: android-screenshot
-          path: android-welcome.png
-      - uses: actions/upload-artifact@v4
-        with:
-          name: DT-Client-Android
+          name: DT-Connect-Android
           path: release/*.apk
           if-no-files-found: error
 
@@ -353,5 +372,5 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" * --clobber
           else
-            gh release create "$GITHUB_REF_NAME" * --title "DT Client $GITHUB_REF_NAME" --notes-file ../RELEASE_NOTES.md
+            gh release create "$GITHUB_REF_NAME" * --title "DT Connect $GITHUB_REF_NAME" --notes-file ../RELEASE_NOTES.md
           fi
