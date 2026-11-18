@@ -26,6 +26,16 @@ export interface AppAccount {
   devices: number;
 }
 
+export type NoticeLevel = 'info' | 'warning' | 'critical';
+
+// Published from the panel; the text is always Persian, so it is always shown right to left.
+export interface AppNotice {
+  id: number;
+  body: string;
+  level: NoticeLevel;
+  createdAt: number;
+}
+
 export interface AppProfile {
   account: AppAccount;
   title?: string;
@@ -33,6 +43,8 @@ export interface AppProfile {
   announce?: string;
   locations: AppLocation[];
   configs: AppConfig[];
+  // Absent from panels older than Manifold 0.18.
+  notices?: AppNotice[];
 }
 
 export type Engine = 'xray' | 'openvpn' | 'l2tp';
@@ -68,6 +80,10 @@ export interface Settings {
   notifications: boolean;
   locationId: number | null;
   dismissedAnnounce: string;
+  // Banner keys the user closed, and what the bell had shown when last opened.
+  dismissedNotices: string[];
+  seenNoticeId: number;
+  seenAnnounce: string;
 }
 
 export const defaultSettings: Settings = {
@@ -89,6 +105,9 @@ export const defaultSettings: Settings = {
   notifications: true,
   locationId: null,
   dismissedAnnounce: '',
+  dismissedNotices: [],
+  seenNoticeId: 0,
+  seenAnnounce: '',
 };
 
 export type ConnState = 'disconnected' | 'connecting' | 'connected' | 'disconnecting';
@@ -123,12 +142,20 @@ export interface PingResult {
   ms: number | null;
 }
 
+// A profile fetch; error is set when the panel could not be reached and profile is the last one kept.
+export interface ProfileUpdate {
+  profile: AppProfile;
+  fetchedAt: number;
+  error?: string;
+}
+
 // What the window can ask the main process for; preload exposes it as window.dt.
 export interface DtApi {
   session(): Promise<Session | null>;
   login(subLink: string, username: string): Promise<AppProfile>;
   logout(): Promise<void>;
   profile(refresh: boolean): Promise<AppProfile | null>;
+  refresh(): Promise<ProfileUpdate | null>;
   settings(): Promise<Settings>;
   saveSettings(patch: Partial<Settings>): Promise<Settings>;
   connect(locationId: number | null): Promise<Status>;
@@ -140,4 +167,7 @@ export interface DtApi {
   appIcon(path: string): Promise<string | null>;
   openExternal(url: string): Promise<void>;
   onStatus(listener: (status: Status) => void): () => void;
+  // The profile the app refreshes by itself every 10 minutes; signedOut carries the panel's code.
+  onProfile(listener: (update: ProfileUpdate) => void): () => void;
+  onSignedOut(listener: (code: string) => void): () => void;
 }

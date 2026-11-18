@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
-import type { DtApi, Status } from '../shared/types';
+import type { DtApi, ProfileUpdate, Status } from '../shared/types';
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result = (await ipcRenderer.invoke(channel, ...args)) as { ok: true; value: T } | { ok: false; code: string };
@@ -13,6 +13,7 @@ const api: DtApi = {
   login: (subLink, username) => invoke('login', subLink, username),
   logout: () => invoke('logout'),
   profile: (refresh) => invoke('profile', refresh),
+  refresh: () => invoke('refresh'),
   settings: () => invoke('settings'),
   saveSettings: (patch) => invoke('saveSettings', patch),
   connect: (locationId) => invoke('connect', locationId),
@@ -27,6 +28,16 @@ const api: DtApi = {
     const wrapped = (_event: IpcRendererEvent, status: Status) => listener(status);
     ipcRenderer.on('status', wrapped);
     return () => ipcRenderer.off('status', wrapped);
+  },
+  onProfile: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, update: ProfileUpdate) => listener(update);
+    ipcRenderer.on('profile', wrapped);
+    return () => ipcRenderer.off('profile', wrapped);
+  },
+  onSignedOut: (listener) => {
+    const wrapped = (_event: IpcRendererEvent, code: string) => listener(code);
+    ipcRenderer.on('signedOut', wrapped);
+    return () => ipcRenderer.off('signedOut', wrapped);
   },
 };
 

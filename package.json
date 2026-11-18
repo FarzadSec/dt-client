@@ -1,7 +1,7 @@
 {
   "name": "dt-client",
   "productName": "DT Client",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "DataCraft Team VPN client",
   "author": "DataCraft Team",
   "license": "UNLICENSED",

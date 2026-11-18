@@ -143,3 +143,29 @@ export const PowerIcon = () => (
     <path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0" />
   </Icon>
 );
+export const RefreshIcon = () => (
+  <Icon size={20}>
+    <path d="M20 11a8 8 0 0 0-14.6-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5L20 16M20 20v-4h-4" />
+  </Icon>
+);
+export const AlertIcon = () => (
+  <Icon size={20}>
+    <path d="M10.3 3.9L2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+    <path d="M12 9.5v4M12 17h.01" />
+  </Icon>
+);
+export const PulseIcon = () => (
+  <Icon size={18}>
+    <path d="M3 12h4l2.5-6 5 12 2.5-6h4" />
+  </Icon>
+);
+export const ArrowUpIcon = () => (
+  <Icon size={14}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </Icon>
+);
+export const ArrowDownIcon = () => (
+  <Icon size={14}>
+    <path d="M12 5v14M6 13l6 6 6-6" />
+  </Icon>
+);

@@ -11,10 +11,16 @@ The app talks to the Manifold panel's app API on the subscription server (`<subs
 | Call | What it does |
 | --- | --- |
 | `POST /login` | The username of one of the link's accounts plus a device id (from Windows' MachineGuid) returns a session token. The device takes a slot of the account's device limit. |
-| `GET /profile` | The account (usage, expiry, devices), the locations and every configuration of the subscription, with the Xray outbound of each one Xray runs. |
+| `GET /profile` | The account (usage, expiry, devices), the locations, every configuration of the subscription, with the Xray outbound of each one Xray runs, and the panel's notices (Manifold 0.18+). |
 | `POST /logout` | Ends the session. |
 
 App access is switched on in the panel under **Settings → App**, where each server also gets its name, country, city and timezone.
+
+The app fetches the profile again every 10 minutes, when the computer wakes, and when the refresh button in the title bar is pressed, so locations, configs and notices changed on the panel reach it within that time. When the panel cannot be reached the last profile is kept and the button says so.
+
+**Notices** are published from the panel under **Settings → App notices** at a level: info goes to the bell in the title bar, warning and critical also show as an amber or red banner at the top of every page until closed with its ✕, and one that arrives while the window is in the tray comes as a system notification too. Notices are written in Persian, so they are always laid out right to left in Vazirmatn, also when the app is in English. The bell counts what arrived since it was last opened.
+
+OpenVPN and L2TP need a login: the panel puts the account's username and password in the OpenVPN profile (always, for the app) and in the L2TP link, and the app connects with them, so the customer never types them.
 
 Engines, all started by the app (which runs as administrator):
 
@@ -26,7 +32,7 @@ Engines, all started by the app (which runs as administrator):
 
 **Automatic** tries the Xray protocols of the chosen location first, then WireGuard, OpenVPN and L2TP, and keeps the first that answers (an Xray config must fetch `https://www.gstatic.com/generate_204` through itself).
 
-The window follows the layout of the big VPN apps: a rail of pages (home, locations, settings), a location search in the title bar, a home page with a world map that moves to the chosen server, the connection state and a quick-connect button, recent locations, time connected over the last seven days, the account and the protection switches; a location list grouped by country with ping and a protocol filter; and settings in sections. Persian (right to left) and English, dark, light or the system's theme. The map is Natural Earth (via `world-atlas`), drawn once by `scripts/gen-map.mjs` into `src/renderer/geo/`.
+The window follows the layout of the big VPN apps: a rail of pages (home, locations, settings), a location search in the title bar, a home page with a world map that moves to the chosen server, the connection state and a quick-connect button, recent locations, time connected over the last seven days with the plan's traffic as a bar under it (amber from 80%, red from 95%), the account and the protection switches; a location list grouped by country with ping, a **Test ping** button and a protocol filter; and settings in sections. Ping is the TCP connect time to each server, or an ICMP echo through the system's `ping` for servers that answer on UDP only (WireGuard, Hysteria, L2TP, OpenVPN over UDP) or refuse the TCP connect. Persian (right to left) and English, dark, light or the system's theme. The map is Natural Earth (via `world-atlas`), drawn once by `scripts/gen-map.mjs` into `src/renderer/geo/`.
 
 Settings:
 

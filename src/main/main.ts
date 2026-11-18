@@ -1,15 +1,16 @@
 import os from 'node:os';
 import path from 'node:path';
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, safeStorage, shell, Tray } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, shell, Tray } from 'electron';
 
 import { addSpan, pushRecent } from '../shared/activity';
 import { engineOf } from '../shared/engines';
-import type { AppProfile, PingResult, Settings, SplitApp, Status } from '../shared/types';
+import type { AppProfile, PingResult, ProfileUpdate, Settings, SplitApp, Status } from '../shared/types';
 import { ApiError, AppApi } from './api';
-import { serverAddress } from './candidates';
+import { answersOnUdp, serverAddress } from './candidates';
 import { tcpPing } from './health';
 import { appApiBase, LinkError } from './link';
+import { icmpPing } from './ping';
 import { Store } from './store';
 import { setAutostart } from './system/autostart';
 import { deviceId, deviceName } from './system/device';
@@ -34,6 +35,12 @@ let profileCache: AppProfile | null = null;
 let lastStatus: Status = { state: 'disconnected' };
 let bookedUntil = 0;
 let reconnectAttempts = 0;
+let fetchedAt = 0;
+// The newest notice the window has had; only ones after it arrive as system notifications.
+let noticesKnownUpTo = 0;
+
+// Changes made on the panel reach a running app within this time; the refresh button is for now.
+const profileRefreshMs = 10 * 60_000;
 
 // IPC carries only a message string, so failures cross as a code the window translates.
 type Result<T> = { ok: true; value: T } | { ok: false; code: string };
@@ -71,24 +78,56 @@ async function login(subLink: string, username: string): Promise<AppProfile> {
   return profile;
 }
 
-async function refreshProfile(force: boolean): Promise<AppProfile | null> {
+const sessionEndingCodes = ['bad_session', 'app_disabled', 'not_found'];
+
+// Fetches the profile; when the panel cannot be reached the last one is kept and the error reported.
+async function fetchProfile(): Promise<ProfileUpdate | null> {
   const session = store.session();
   if (!session) return null;
-  if (!force && profileCache) return profileCache;
   const info = await device();
   try {
     profileCache = await new AppApi(appApiBase(session.subLink), userAgent).profile(session.token, info.deviceId);
     store.saveProfile(profileCache);
+    fetchedAt = Date.now();
+    noticesKnownUpTo = Math.max(noticesKnownUpTo, ...(profileCache.notices ?? []).map((n) => n.id));
+    return { profile: profileCache, fetchedAt };
   } catch (err) {
-    if (err instanceof ApiError && ['bad_session', 'app_disabled', 'not_found'].includes(err.code)) {
+    if (err instanceof ApiError && sessionEndingCodes.includes(err.code)) {
       store.clearSession();
       profileCache = null;
       throw err;
     }
     profileCache = profileCache ?? store.profile();
     if (!profileCache) throw err;
+    return { profile: profileCache, fetchedAt, error: codeOf(err) };
   }
-  return profileCache;
+}
+
+async function refreshProfile(force: boolean): Promise<AppProfile | null> {
+  if (!store.session()) return null;
+  if (!force && profileCache) return profileCache;
+  return (await fetchProfile())?.profile ?? null;
+}
+
+// Runs every 10 minutes and when the computer wakes; the window and the tray learn the result.
+async function backgroundRefresh(): Promise<void> {
+  if (!store.session()) return;
+  const knownBefore = noticesKnownUpTo;
+  try {
+    const update = await fetchProfile();
+    if (!update) return;
+    window?.webContents.send('profile', update);
+    announceNew(update.profile, knownBefore);
+  } catch (err) {
+    window?.webContents.send('signedOut', codeOf(err));
+  }
+}
+
+function announceNew(profile: AppProfile, knownBefore: number): void {
+  for (const n of profile.notices ?? []) {
+    if (n.id <= knownBefore || n.level === 'info') continue;
+    notify(n.level === 'critical' ? noticeTitles[store.settings().language].critical : noticeTitles[store.settings().language].warning, n.body);
+  }
 }
 
 async function logout(): Promise<void> {
@@ -102,14 +141,23 @@ async function logout(): Promise<void> {
   profileCache = null;
 }
 
+// One probe per server: TCP connect time, or ICMP for servers that answer on UDP only or refuse TCP.
 async function ping(): Promise<PingResult[]> {
   const profile = profileCache ?? store.profile();
   if (!profile) return [];
+  const probes = new Map<string, Promise<number | null>>();
+  const once = (key: string, probe: () => Promise<number | null>) => {
+    let p = probes.get(key);
+    if (!p) probes.set(key, (p = probe()));
+    return p;
+  };
   const usable = profile.configs.filter((c) => engineOf(c));
   return Promise.all(
     usable.map(async (config) => {
       const target = serverAddress(config);
-      const ms = target ? await tcpPing(target.host, target.port) : null;
+      if (!target) return { link: config.link, ms: null };
+      const icmp = () => once(`icmp ${target.host}`, () => icmpPing(target.host));
+      const ms = answersOnUdp(config) ? await icmp() : ((await once(`tcp ${target.host}:${target.port}`, () => tcpPing(target.host, target.port))) ?? (await icmp()));
       return { link: config.link, ms };
     }),
   );
@@ -161,6 +209,11 @@ function paintWindowFrame(): void {
 const notices = {
   fa: { connected: 'متصل شد', lost: 'اتصال قطع شد', disconnected: 'اتصال قطع شد' },
   en: { connected: 'Connected', lost: 'Connection lost', disconnected: 'Disconnected' },
+};
+
+const noticeTitles = {
+  fa: { critical: 'اطلاعیه مهم', warning: 'اطلاعیه' },
+  en: { critical: 'Important notice', warning: 'Notice' },
 };
 
 function notify(title: string, body: string): void {
@@ -266,6 +319,7 @@ app.whenReady().then(async () => {
   });
   vpn = new Vpn({ bin: binDir, work: path.join(app.getPath('userData'), 'run') });
   profileCache = store.profile();
+  noticesKnownUpTo = Math.max(0, ...(profileCache?.notices ?? []).map((n) => n.id));
   nativeTheme.themeSource = store.settings().theme;
   ready = true;
 
@@ -276,6 +330,7 @@ app.whenReady().then(async () => {
   handle('login', login);
   handle('logout', logout);
   handle('profile', (force: boolean) => refreshProfile(force));
+  handle('refresh', fetchProfile);
   handle('settings', () => store.settings());
   handle('saveSettings', saveSettings);
   handle('connect', connect);
@@ -291,6 +346,8 @@ app.whenReady().then(async () => {
 
   vpn.on('status', onStatus);
   setInterval(() => bookActivity(), 60_000);
+  setInterval(() => void backgroundRefresh(), profileRefreshMs);
+  powerMonitor.on('resume', () => setTimeout(() => void backgroundRefresh(), 15_000));
   nativeTheme.on('updated', paintWindowFrame);
 
   tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 }));

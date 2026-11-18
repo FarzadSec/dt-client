@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { lastDays } from '../../shared/activity';
 import { usableLocationIds } from '../../shared/engines';
-import type { Activity, AppLocation, AppProfile, Language, PingResult, Settings, Status } from '../../shared/types';
+import type { Activity, AppAccount, AppLocation, AppProfile, Language, PingResult, Settings, Status } from '../../shared/types';
+import { usageOf } from '../../shared/usage';
 import { Flag } from '../components/Flag';
-import { CloseIcon, NextIcon, ShieldIcon } from '../components/Icons';
+import { ArrowDownIcon, ArrowUpIcon, NextIcon, ShieldIcon } from '../components/Icons';
 import { WorldMap, type MapMarker } from '../components/WorldMap';
 import { bytes, clock, daysLeft, spent } from '../format';
 import { countryPoint } from '../geo/geo';
@@ -20,10 +21,8 @@ interface Props {
   settings: Settings;
   pings: PingResult[];
   activity: Activity;
-  announce: string;
   onConnect: (locationId: number | null) => void;
   onDisconnect: () => void;
-  onDismissAnnounce: () => void;
   onAllLocations: () => void;
   onOpenSettings: (section: Section) => void;
 }
@@ -115,19 +114,11 @@ export function Home(props: Props) {
       {status.blocking && <div className="banner warn">{t('blocking')}</div>}
       {!status.blocking && status.error && <div className="banner error">{errorText(t, status.error)}</div>}
       {status.notice && <div className="banner warn">{t(`notice.${status.notice}`)}</div>}
-      {props.announce && (
-        <div className="banner info">
-          <span dir="auto">{props.announce}</span>
-          <button type="button" className="icon-btn" aria-label="close" onClick={props.onDismissAnnounce}>
-            <CloseIcon />
-          </button>
-        </div>
-      )}
 
       <Recents {...props} byId={byId} usable={usable} />
 
       <div className="home-grid">
-        <Statistics t={t} lang={lang} activity={activity} />
+        <Statistics t={t} lang={lang} activity={activity} account={profile.account} />
         <div className="stack">
           <AccountCard t={t} profile={profile} onOpen={() => props.onOpenSettings('account')} />
           <Protection t={t} settings={settings} onOpen={props.onOpenSettings} />
@@ -171,7 +162,7 @@ function Recents({ t, lang, profile, pings, activity, onConnect, onAllLocations,
   );
 }
 
-function Statistics({ t, lang, activity }: { t: Translate; lang: Language; activity: Activity }) {
+function Statistics({ t, lang, activity, account }: { t: Translate; lang: Language; activity: Activity; account: AppAccount }) {
   const days = lastDays(activity, 7);
   const max = Math.max(3600, ...days.map((d) => d.seconds));
   const total = days.reduce((s, d) => s + d.seconds, 0);
@@ -194,7 +185,37 @@ function Statistics({ t, lang, activity }: { t: Translate; lang: Language; activ
           </div>
         ))}
       </div>
+      <UsageBar t={t} account={account} />
     </section>
+  );
+}
+
+// The plan's traffic as one bar: green, amber from 80% and red from 95%.
+function UsageBar({ t, account }: { t: Translate; account: AppAccount }) {
+  const u = usageOf(account);
+  const ltr = (text: string) => <span dir="ltr">{text}</span>;
+  return (
+    <div className={`usage ${u.level}`}>
+      <div className="usage-head">
+        <span className="usage-title">{t('traffic')}</span>
+        {u.percent !== null ? <span className="usage-percent" dir="ltr">{u.percent}%</span> : <span className="muted">{t('unlimitedTraffic')}</span>}
+      </div>
+      <div className={u.percent === null ? 'usage-track unlimited' : 'usage-track'} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={u.percent ?? undefined}>
+        <div className="usage-fill" style={{ width: `${u.percent ?? 100}%` }} />
+      </div>
+      <div className="usage-foot">
+        <span>{u.total > 0 ? t('usedOf', { used: '\u2068' + bytes(u.used) + '\u2069', total: '\u2068' + bytes(u.total) + '\u2069' }) : ltr(bytes(u.used))}</span>
+        {u.left !== null && <span className="muted">{t('trafficLeft', { n: '\u2068' + bytes(u.left) + '\u2069' })}</span>}
+      </div>
+      <div className="usage-split muted">
+        <span>
+          <ArrowUpIcon /> {t('uploaded')} {ltr(bytes(account.upload))}
+        </span>
+        <span>
+          <ArrowDownIcon /> {t('downloaded')} {ltr(bytes(account.download))}
+        </span>
+      </div>
+    </div>
   );
 }
 

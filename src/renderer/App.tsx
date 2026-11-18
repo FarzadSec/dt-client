@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
-import type { Activity, AppProfile, PingResult, Settings, Status } from '../shared/types';
-import { BellIcon, GearIcon, GlobeIcon, HelpIcon, PinIcon, SearchIcon, UserIcon } from './components/Icons';
+import { bannerNotices, noticeLog, unreadNotices } from '../shared/notices';
+import type { Activity, AppProfile, PingResult, ProfileUpdate, Settings, Status } from '../shared/types';
+import { BellIcon, GearIcon, GlobeIcon, HelpIcon, PinIcon, RefreshIcon, SearchIcon, UserIcon } from './components/Icons';
+import { NoticeBanners, NoticeCenter, Toast } from './components/Notices';
 import { translator } from './i18n';
 import logo from './logo.svg';
 import { Home } from './pages/Home';
@@ -33,7 +35,12 @@ export function App() {
   const [section, setSection] = useState<Section>('general');
   const [query, setQuery] = useState('');
   const [signOutReason, setSignOutReason] = useState('');
-  const [showAnnounce, setShowAnnounce] = useState(false);
+  const [showNotices, setShowNotices] = useState(false);
+  const [fetchedAt, setFetchedAt] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pinging, setPinging] = useState(false);
+  const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'bad' } | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const systemDark = useSystemDark();
 
   const lang = settings?.language ?? 'fa';
@@ -46,9 +53,52 @@ export function App() {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }, [lang, dark]);
 
-  const refreshPings = useCallback(() => {
-    void window.dt.ping().then(setPings).catch(() => undefined);
+  const refreshPings = useCallback(async () => {
+    setPinging(true);
+    try {
+      setPings(await window.dt.ping());
+    } catch {
+      // The previous results stay.
+    } finally {
+      setPinging(false);
+    }
   }, []);
+
+  const showToast = useCallback((text: string, kind: 'ok' | 'bad') => {
+    setToast({ text, kind });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  const signedOut = useCallback((code: string) => {
+    setProfile(null);
+    setSignedIn(false);
+    setSignOutReason(code);
+  }, []);
+
+  const applyUpdate = useCallback((update: ProfileUpdate | null) => {
+    if (!update) return;
+    setProfile(update.profile);
+    setSignedIn(true);
+    setFetchedAt(update.fetchedAt);
+  }, []);
+
+  // A fetch from the panel now; the main process also does this every 10 minutes by itself.
+  const refreshNow = useCallback(
+    async (manual: boolean) => {
+      setRefreshing(true);
+      try {
+        const update = await window.dt.refresh();
+        applyUpdate(update);
+        if (manual && update) showToast(update.error ? t('refreshFailed') : t('refreshed'), update.error ? 'bad' : 'ok');
+      } catch (err) {
+        signedOut((err as Error).message);
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [applyUpdate, showToast, signedOut, t],
+  );
 
   const loadProfile = useCallback(async (force: boolean) => {
     try {
@@ -71,20 +121,29 @@ export function App() {
         setSignedIn(false);
         return;
       }
-      void loadProfile(false).then(() => loadProfile(true));
+      void loadProfile(false).then(() => refreshNow(false));
     });
-    return window.dt.onStatus((s) => {
+    const offStatus = window.dt.onStatus((s) => {
       setStatus(s);
       void window.dt.activity().then(setActivity);
     });
-  }, [loadProfile]);
+    const offProfile = window.dt.onProfile(applyUpdate);
+    const offSignedOut = window.dt.onSignedOut(signedOut);
+    return () => {
+      offStatus();
+      offProfile();
+      offSignedOut();
+    };
+  }, [loadProfile, applyUpdate, signedOut]);
 
   useEffect(() => {
     if (!signedIn) return;
-    refreshPings();
-    const timer = setInterval(refreshPings, 60_000);
+    void refreshPings();
+    const timer = setInterval(() => void refreshPings(), 60_000);
     return () => clearInterval(timer);
   }, [signedIn, profile, refreshPings]);
+
+  const log = useMemo(() => (profile ? noticeLog(profile) : []), [profile]);
 
   const saveSettings = useCallback(async (patch: Partial<Settings>) => {
     setSettings((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -104,6 +163,7 @@ export function App() {
           setProfile(p);
           setSignedIn(true);
           setSignOutReason('');
+          setFetchedAt(Date.now());
           setPage('home');
         }}
       />
@@ -120,7 +180,18 @@ export function App() {
     setSection(s);
     setPage('settings');
   };
-  const announce = profile.announce && profile.announce !== settings.dismissedAnnounce ? profile.announce : '';
+  const banners = bannerNotices(log, settings.dismissedNotices);
+  const unread = unreadNotices(log, { seenId: settings.seenNoticeId, seenAnnounce: settings.seenAnnounce });
+  const toggleNotices = () => {
+    setShowNotices((open) => !open);
+    if (unread > 0) {
+      const seenNoticeId = Math.max(settings.seenNoticeId, ...log.map((n) => n.id));
+      void saveSettings({ seenNoticeId, seenAnnounce: profile.announce?.trim() ?? '' });
+    }
+  };
+  const closeBanner = (key: string) => void saveSettings({ dismissedNotices: [...settings.dismissedNotices.filter((k) => log.some((n) => n.key === k)), key] });
+  const timeFormat = new Intl.DateTimeFormat(lang === 'fa' ? 'fa-IR' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+  const refreshTitle = fetchedAt ? `${t('refreshSub')} · ${t('updatedAt', { time: timeFormat.format(new Date(fetchedAt)) })}` : t('refreshSub');
 
   const nav: [Page, () => ReactElement, string][] = [
     ['home', GlobeIcon, t('home')],
@@ -148,20 +219,25 @@ export function App() {
           />
         </label>
         <div className="top-actions">
-          {profile.announce && (
-            <button type="button" className={announce ? 'round-btn dot' : 'round-btn'} aria-label="announce" onClick={() => setShowAnnounce((v) => !v)}>
-              <BellIcon />
-            </button>
-          )}
+          <button
+            type="button"
+            className={refreshing ? 'round-btn spinning' : 'round-btn'}
+            aria-label={t('refreshSub')}
+            title={refreshTitle}
+            disabled={refreshing}
+            onClick={() => void refreshNow(true)}
+          >
+            <RefreshIcon />
+          </button>
+          <button type="button" className="round-btn bell-btn" aria-label={t('notices')} title={t('notices')} onClick={toggleNotices}>
+            <BellIcon />
+            {unread > 0 && <span className="badge">{unread > 9 ? '9+' : unread}</span>}
+          </button>
           <button type="button" className="round-btn" aria-label={t('account')} onClick={() => openSettings('account')}>
             <UserIcon />
           </button>
         </div>
-        {showAnnounce && profile.announce && (
-          <div className="popover" dir="auto" onClick={() => setShowAnnounce(false)}>
-            {profile.announce}
-          </div>
-        )}
+        {showNotices && <NoticeCenter t={t} lang={lang} notices={log} onClose={() => setShowNotices(false)} />}
       </header>
 
       <nav className="rail">
@@ -179,6 +255,7 @@ export function App() {
       </nav>
 
       <main className="content">
+        <NoticeBanners t={t} notices={banners} onClose={closeBanner} />
         {page === 'home' && (
           <Home
             t={t}
@@ -188,10 +265,8 @@ export function App() {
             settings={settings}
             pings={pings}
             activity={activity}
-            announce={announce}
             onConnect={(id) => void connectTo(id)}
             onDisconnect={disconnect}
-            onDismissAnnounce={() => void saveSettings({ dismissedAnnounce: profile.announce ?? '' })}
             onAllLocations={() => setPage('locations')}
             onOpenSettings={openSettings}
           />
@@ -205,6 +280,8 @@ export function App() {
             status={status}
             selected={settings.locationId}
             query={query}
+            pinging={pinging}
+            onPing={() => void refreshPings()}
             onConnect={(id) => void connectTo(id)}
             onDisconnect={disconnect}
           />
@@ -217,7 +294,7 @@ export function App() {
             section={section}
             onSection={setSection}
             onChange={(patch) => void saveSettings(patch)}
-            onRefresh={() => void loadProfile(true)}
+            onRefresh={() => void refreshNow(true)}
             onLogout={() =>
               void window.dt.logout().then(() => {
                 setProfile(null);
@@ -227,6 +304,7 @@ export function App() {
           />
         )}
       </main>
+      {toast && <Toast text={toast.text} kind={toast.kind} />}
     </div>
   );
 }

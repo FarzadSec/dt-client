@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 
 import type { AppProfile, Language, PingResult, Status } from '../../shared/types';
 import { Flag } from '../components/Flag';
-import { ChevronIcon } from '../components/Icons';
+import { ChevronIcon, PulseIcon } from '../components/Icons';
 import type { Translate } from '../i18n';
 import { groupLocations, locationLabel, type LocationItem, type ProtocolFilter } from '../locations';
 
@@ -14,6 +14,8 @@ interface Props {
   status: Status;
   selected: number | null;
   query: string;
+  pinging: boolean;
+  onPing: () => void;
   onConnect: (locationId: number | null) => void;
   onDisconnect: () => void;
 }
@@ -28,11 +30,17 @@ const filters: [ProtocolFilter, string][] = [
 
 const protocolNames: Record<string, string> = { xray: 'Xray', wireguard: 'WireGuard', openvpn: 'OpenVPN', l2tp: 'L2TP' };
 
-function Ping({ ms }: { ms: number | null }) {
-  return <span className={ms === null ? 'ping off' : ms < 150 ? 'ping good' : 'ping'}>{ms === null ? '—' : `${ms} ms`}</span>;
+function Ping({ ms, pinging }: { ms: number | null; pinging: boolean }) {
+  if (pinging && ms === null) return <span className="ping measuring" aria-hidden />;
+  const kind = ms === null ? 'off' : ms < 150 ? 'good' : ms < 300 ? 'mid' : 'slow';
+  return (
+    <span className={`ping ${kind}`} dir="ltr">
+      {ms === null ? '—' : `${ms} ms`}
+    </span>
+  );
 }
 
-export function Locations({ t, lang, profile, pings, status, selected, query, onConnect, onDisconnect }: Props) {
+export function Locations({ t, lang, profile, pings, status, selected, query, pinging, onPing, onConnect, onDisconnect }: Props) {
   const [filter, setFilter] = useState<ProtocolFilter>('all');
   const [open, setOpen] = useState<Set<string>>(new Set());
   const groups = useMemo(() => groupLocations(profile, pings, filter, query, lang), [profile, pings, filter, query, lang]);
@@ -49,7 +57,7 @@ export function Locations({ t, lang, profile, pings, status, selected, query, on
           <strong>{label}</strong>
           <small dir="ltr">{[item.location.city !== label ? item.location.city : '', ...item.protocols.map((p) => protocolNames[p])].filter(Boolean).join(' · ')}</small>
         </button>
-        <Ping ms={item.ping} />
+        <Ping ms={item.ping} pinging={pinging} />
         {active ? (
           <button type="button" className="btn btn-secondary btn-sm" onClick={onDisconnect}>
             {t('disconnect')}
@@ -65,12 +73,18 @@ export function Locations({ t, lang, profile, pings, status, selected, query, on
 
   return (
     <div className="locations">
-      <div className="chips">
-        {filters.map(([key, label]) => (
-          <button key={key} type="button" className={filter === key ? 'chip active' : 'chip'} onClick={() => setFilter(key)}>
-            {key === 'all' ? t('all') : label}
-          </button>
-        ))}
+      <div className="locations-head">
+        <div className="chips">
+          {filters.map(([key, label]) => (
+            <button key={key} type="button" className={filter === key ? 'chip active' : 'chip'} onClick={() => setFilter(key)}>
+              {key === 'all' ? t('all') : label}
+            </button>
+          ))}
+        </div>
+        <button type="button" className={pinging ? 'btn btn-secondary btn-sm ping-btn running' : 'btn btn-secondary btn-sm ping-btn'} title={t('pingHint')} disabled={pinging} onClick={onPing}>
+          <PulseIcon />
+          {pinging ? t('pinging') : t('pingNow')}
+        </button>
       </div>
       <div className="muted list-title">{t('selectLocation')}</div>
 
@@ -111,7 +125,7 @@ export function Locations({ t, lang, profile, pings, status, selected, query, on
                   <strong>{group.name || '—'}</strong>
                   <small>{t('servers', { n: group.items.length })}</small>
                 </span>
-                <Ping ms={best} />
+                <Ping ms={best} pinging={pinging} />
                 <ChevronIcon open={expanded} />
               </button>
               {expanded && group.items.map((item) => serverRow(item, true))}

@@ -62,3 +62,14 @@ export function serverAddress(config: AppConfig): { host: string; port: number }
     return null;
   }
 }
+
+// These servers listen on UDP only, so a TCP connect says nothing about them.
+export function answersOnUdp(config: AppConfig): boolean {
+  if (['wireguard', 'hysteria', 'hysteria2', 'l2tp'].includes(config.protocol)) return true;
+  if (config.protocol !== 'openvpn') return false;
+  try {
+    return /^\s*proto\s+udp/m.test(Buffer.from(config.link.slice('openvpn://'.length), 'base64url').toString('utf8'));
+  } catch {
+    return false;
+  }
+}
