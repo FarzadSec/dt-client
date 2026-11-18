@@ -248,12 +248,12 @@ private fun Recents(p: Profile, settings: Settings, activity: MainActivity, onAl
     SectionHeader(if (recent.isNotEmpty()) t("recents") else t("suggested"), t("allLocations"), onAll)
     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "fastest") {
-            PlaceCard(null, t("fastestShort"), Candidates.bestPing(p, pings, null)?.let { "${iso("$it")} ms" } ?: t("bestPing")) { activity.connect(null) }
+            PlaceCard(null, t("fastestShort"), Candidates.bestPing(p, pings, null)?.let { iso("$it ms") } ?: t("bestPing")) { activity.connect(null) }
         }
         items(shown, key = { it.id }) { l: Location ->
             val country = Geo.name(context, l.countryCode, t.language)
             val ms = Candidates.bestPing(p, pings, l.id)
-            val subtitle = listOf(l.city.ifEmpty { if (country.isNotEmpty() && l.name != country) l.name else "" }, ms?.let { "${iso("$it")} ms" } ?: "").filter { it.isNotEmpty() }.joinToString(" · ")
+            val subtitle = listOf(l.city.ifEmpty { if (country.isNotEmpty() && l.name != country) l.name else "" }, ms?.let { iso("$it ms") } ?: "").filter { it.isNotEmpty() }.joinToString(" · ")
             PlaceCard(l.countryCode, country.ifEmpty { l.name }, subtitle.ifEmpty { t("fastestShort") }) { activity.connect(l.id) }
         }
     }
@@ -305,9 +305,9 @@ private fun PlanCard(p: Profile) {
             Box(Modifier.fillMaxWidth(((percent ?: 100.0) / 100).toFloat().coerceAtLeast(0.03f)).height(10.dp).clip(RoundedCornerShape(5.dp)).background(Brush.horizontalGradient(listOf(color.copy(alpha = if (percent == null) 0.35f else 0.7f), color))))
         }
         Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth()) {
-            Text(if (a.total > 0) t("usedOf", "used" to iso(bytes(used)), "total" to iso(bytes(a.total))) else "${t("unlimitedTraffic")} · ${iso(bytes(used))}", color = c.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
-            if (a.total > 0) Text(t("trafficLeft", "n" to iso(bytes((a.total - used).coerceAtLeast(0)))), color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (a.total > 0) t("usedOf", "used" to iso(bytes(used)), "total" to iso(bytes(a.total))) else "${t("unlimitedTraffic")} · ${iso(bytes(used))}", color = c.text, fontSize = 13.sp, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
+            if (a.total > 0) Text(t("trafficLeft", "n" to iso(bytes((a.total - used).coerceAtLeast(0)))), color = color, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
         }
         if (a.deviceLimit > 0) Text("${t("devices")}: ${iso("${a.devices} / ${a.deviceLimit}")}", color = c.muted, fontSize = 13.sp)
     }
@@ -357,7 +357,7 @@ private fun WeekCard() {
             }
         }
         Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Legend(c.button, t("hSecured", "n" to iso("$securedHours")))
             Legend(c.muted, t("hNotSecured", "n" to iso("$notSecuredHours")))
         }

@@ -33,7 +33,7 @@ function profile() {
     configs: locations.map((l) => ({
       protocol: l.protocol,
       name: `${l.protocol}-${l.countryCode.toLowerCase()}-${l.id}`,
-      link: `${l.protocol}://test-${l.id}@10.0.2.2:${{ vless: 8443, vmess: 8080, trojan: 8081, shadowsocks: 8388, wireguard: 51820 }[l.protocol]}#${l.city}`,
+      link: `${l.protocol}://test-${l.id}@10.0.2.2:${{ vless: 8443, vmess: 8080, trojan: 8081, shadowsocks: 8388, wireguard: 51820 }[l.protocol]}#${encodeURIComponent(l.city)}`,
       locationId: l.id,
       outbound: outbound(l.protocol),
     })),

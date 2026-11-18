@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -84,6 +85,7 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
     var filter by rememberSaveable { mutableStateOf("all") }
     var open by remember { mutableStateOf(setOf<String>()) }
     val focus = remember { FocusRequester() }
+    val listState = rememberLazyListState()
     LaunchedEffect(Unit) { if (focusSearch) runCatching { focus.requestFocus() } }
 
     val runnable = remember(p) { p.configs.filter { Candidates.runnable(it) } }
@@ -102,6 +104,10 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                 g.code.lowercase() == q || g.locations.any { it.name.lowercase().contains(q) || it.city.lowercase().contains(q) }
         }.sortedWith(compareBy<CountryGroup>({ it.ping ?: Int.MAX_VALUE }, { it.name }))
     }
+
+    // A new search or filter starts at the top: the list would otherwise keep its place on the first
+    // row still shown, leaving Fastest location above it once the search is cleared.
+    LaunchedEffect(q, filter) { listState.scrollToItem(0) }
 
     fun connect(id: Int?) {
         if (id == null || id != active) activity.connect(id)
@@ -170,7 +176,7 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                 Text(if (pinging) t("pinging") else t("pingNow"), color = c.accent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             }
         }
-        LazyColumn(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).background(c.card).fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).background(c.card).fillMaxSize()) {
             if (q.isEmpty()) {
                 item(key = "fastest") {
                     Row(Modifier.fillMaxWidth().clickable { connect(null) }.padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -216,7 +222,7 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                                 val cities = g.locations.map { it.city.ifEmpty { it.name } }.distinct().size
                                 if (cities == g.locations.size) t("cities", "n" to iso("$cities")) else t("servers", "n" to iso("${g.locations.size}"))
                             } else {
-                                single.city.ifEmpty { if (single.name != g.name) single.name else "" }
+                                single.city.ifEmpty { if (single.name != g.name && single.name != Geo.name(context, g.code, "en")) single.name else "" }
                             }
                             if (sub.isNotEmpty()) Text(sub, color = c.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -238,7 +244,9 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(l.city.ifEmpty { l.name }, color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                                if (l.city.isNotEmpty() && l.name.isNotEmpty() && l.name != g.name) Text(l.name, color = c.muted, fontSize = 13.sp)
+                                // The panel's own name for the location, when it says more than the country does.
+                                val countryNames = setOf(g.name, Geo.name(context, g.code, "en"), Geo.name(context, g.code, "fa"))
+                                if (l.city.isNotEmpty() && l.name.isNotEmpty() && l.name !in countryNames) Text(l.name, color = c.muted, fontSize = 13.sp)
                             }
                             PingText(Candidates.bestPing(p, pings, l.id), pinging)
                             Spacer(Modifier.width(10.dp))

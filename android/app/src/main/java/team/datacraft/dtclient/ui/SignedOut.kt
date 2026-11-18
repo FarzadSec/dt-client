@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -55,6 +57,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -261,6 +264,17 @@ private fun OnboardingArt() {
         }
     }
     val focus = remember { Geo.point(context, "TR") ?: Offset(0.6f, 0.33f) }
+    // Drawn at 320 × 330 and scaled to the room the page leaves, so short phones keep it whole.
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val scale = minOf(maxWidth / 320.dp, maxHeight / 330.dp, 1.15f)
+        Box(Modifier.requiredSize(320.dp, 330.dp).graphicsLayer { scaleX = scale; scaleY = scale }) {
+            ArtPieces(c, t, dots, focus)
+        }
+    }
+}
+
+@Composable
+private fun ArtPieces(c: DtColors, t: Strings, dots: List<MapDot>, focus: Offset) {
     Box(Modifier.size(320.dp, 330.dp)) {
         Box(
             Modifier.align(Alignment.Center).size(220.dp, 300.dp).clip(RoundedCornerShape(38.dp)).background(c.sea)
@@ -396,10 +410,8 @@ private fun LoginPage(
             Text(t("or"), color = c.muted, modifier = Modifier.padding(horizontal = 12.dp))
             HorizontalDivider(Modifier.weight(1f), color = c.line)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryButton(t("scanWithCamera"), Modifier.weight(1f), icon = R.drawable.ic_qr, onClick = onScan)
-            SecondaryButton(t("chooseImage"), Modifier.weight(1f), icon = R.drawable.ic_image, onClick = onImage)
-        }
+        SecondaryButton(t("scanWithCamera"), icon = R.drawable.ic_qr, onClick = onScan)
+        SecondaryButton(t("chooseImage"), icon = R.drawable.ic_image, onClick = onImage)
         Spacer(Modifier.height(12.dp))
     }
 }
