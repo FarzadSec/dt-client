@@ -33,7 +33,10 @@ async function download(url, file) {
 function unzip(zip, dest) {
   fs.mkdirSync(dest, { recursive: true });
   if (process.platform === 'win32') {
-    execFileSync('powershell.exe', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${dest}' -Force`], { stdio: 'inherit' });
+    // Windows' own bsdtar reads zip. Expand-Archive broke when a PowerShell 7 step started
+    // Windows PowerShell, which then loaded PowerShell 7's archive module.
+    const tar = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+    execFileSync(tar, ['-xf', zip, '-C', dest], { stdio: 'inherit' });
   } else if (zip.endsWith('.zip')) {
     execFileSync('unzip', ['-q', '-o', zip, '-d', dest], { stdio: 'inherit' });
   } else {
