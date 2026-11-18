@@ -278,7 +278,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           disk-size: 2048M
-          script: gradle -p android connectedDebugAndroidTest -PappVersion=0.0.0
+          script: gradle -p android connectedDebugAndroidTest -PappVersion=0.1.0
       - uses: actions/upload-artifact@v4
         with:
           name: DT-Client-Android
