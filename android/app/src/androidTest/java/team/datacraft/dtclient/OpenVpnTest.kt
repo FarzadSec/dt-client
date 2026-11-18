@@ -92,6 +92,9 @@ class OpenVpnTest {
     private fun connectThrough(argument: String, gateway: String) {
         val link = InstrumentationRegistry.getArguments().getString(argument)
         assumeTrue("no test server for $argument", !link.isNullOrEmpty())
+        val decoded = OpenVpnProfile.decode(link!!)
+        assertTrue("the link (${link.length} characters) is not an OpenVPN profile", decoded != null)
+        assertNull("unsafe directive", OpenVpnProfile.unsafeDirective(decoded!!))
         // What the user's "Allow" in Android's VPN dialog grants.
         shell("appops set ${context.packageName} ACTIVATE_VPN allow")
         assertNull("VPN consent", VpnService.prepare(context))
@@ -111,7 +114,9 @@ class OpenVpnTest {
                 s.state == ConnState.Connected || (s.state == ConnState.Disconnected && s.error.isNotEmpty())
             }
             val status = VpnState.status.value
-            assertEquals("status: $status", ConnState.Connected, status.state)
+            // On failure the app's and OpenVPN's own log say why.
+            if (status.state != ConnState.Connected) shell("logcat -d -v brief -s openvpn:* DtVpn:* DtApi:*").lines().takeLast(120).forEach { println(it) }
+            assertEquals("status: $status\n" + shell("logcat -d -v brief -s openvpn:* DtVpn:*").lines().takeLast(40).joinToString("\n"), ConnState.Connected, status.state)
             assertEquals("openvpn", status.protocol)
 
             // The shell is not left out of the VPN as the app is: its ping goes through the tunnel to the server.

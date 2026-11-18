@@ -27,8 +27,8 @@ object OpenVpnProfile {
         val padded = body + "=".repeat((4 - body.length % 4) % 4)
         val text = runCatching { String(Base64.decode(padded, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8) }.getOrNull() ?: return null
         val profile = text.replace("\r\n", "\n")
-        if (!Regex("^\\s*client\\s*$", RegexOption.MULTILINE).containsMatchIn(profile)) return null
-        if (!Regex("^\\s*remote\\s+\\S+", RegexOption.MULTILINE).containsMatchIn(profile)) return null
+        if (!Regex("^[ \\t]*client[ \\t]*$", RegexOption.MULTILINE).containsMatchIn(profile)) return null
+        if (!Regex("^[ \\t]*remote[ \\t]+\\S+", RegexOption.MULTILINE).containsMatchIn(profile)) return null
         return profile
     }
 
@@ -86,14 +86,14 @@ object OpenVpnProfile {
 
     // The first server of the profile, for the ping.
     fun remote(profile: String): Pair<String, Int>? {
-        val m = Regex("^\\s*remote\\s+(\\S+)(?:\\s+(\\d+))?", RegexOption.MULTILINE).find(profile) ?: return null
+        val m = Regex("^[ \\t]*remote[ \\t]+(\\S+)(?:[ \\t]+(\\d+))?", RegexOption.MULTILINE).find(profile) ?: return null
         return m.groupValues[1].trim('[', ']') to (m.groupValues[2].toIntOrNull() ?: 1194)
     }
 
-    // OpenVPN's default is UDP; "proto tcp-client" or a TCP remote makes it TCP.
+    // OpenVPN's default is UDP; "proto tcp-client" or a TCP remote makes it TCP. ([ \t], not \s: a match must not run into the next line.)
     fun udp(profile: String): Boolean {
-        val remoteProto = Regex("^\\s*remote\\s+\\S+\\s+\\d+\\s+(\\S+)", RegexOption.MULTILINE).find(profile)?.groupValues?.get(1)
-        val proto = remoteProto ?: Regex("^\\s*proto\\s+(\\S+)", RegexOption.MULTILINE).find(profile)?.groupValues?.get(1) ?: "udp"
+        val remoteProto = Regex("^[ \\t]*remote[ \\t]+\\S+[ \\t]+\\d+[ \\t]+(\\S+)", RegexOption.MULTILINE).find(profile)?.groupValues?.get(1)
+        val proto = remoteProto ?: Regex("^[ \\t]*proto[ \\t]+(\\S+)", RegexOption.MULTILINE).find(profile)?.groupValues?.get(1) ?: "udp"
         return proto.lowercase().startsWith("udp")
     }
 }

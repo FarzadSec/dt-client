@@ -9,6 +9,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import android.system.OsConstants
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -47,6 +48,7 @@ class DtVpnService : VpnService() {
         private const val MTU = 8500
         private const val NOTICE_CHANNEL = "notices"
         private const val OPENVPN_TIMEOUT_MS = 35_000L
+        private const val TAG = "DtVpn"
 
         fun connect(context: Context, locationId: Int?) {
             context.startService(Intent(context, DtVpnService::class.java).setAction(ACTION_CONNECT).putExtra(EXTRA_LOCATION, locationId ?: FASTEST))
@@ -226,8 +228,15 @@ class DtVpnService : VpnService() {
 
     // OpenVPN brings the tunnel up itself and asks for the VPN interface on the way (openTun).
     private suspend fun startOpenVpn(config: Config, settings: Settings): Attempt {
-        val profile = OpenVpnProfile.decode(config.link) ?: return Attempt.Failed
-        if (OpenVpnProfile.unsafeDirective(profile) != null) return Attempt.Failed
+        val profile = OpenVpnProfile.decode(config.link)
+        if (profile == null) {
+            Log.w(TAG, "${config.name}: not an OpenVPN profile")
+            return Attempt.Failed
+        }
+        OpenVpnProfile.unsafeDirective(profile)?.let {
+            Log.w(TAG, "${config.name}: the profile has '$it', which the app does not run")
+            return Attempt.Failed
+        }
         val session = OpenVpn(this, object : OpenVpn.Host {
             override fun protect(fd: Int): Boolean = this@DtVpnService.protect(fd)
             override fun openTun(spec: OpenVpn.TunSpec): ParcelFileDescriptor? = establishOpenVpn(spec, settings)
@@ -246,7 +255,9 @@ class DtVpnService : VpnService() {
             }
         }
         openvpn = session
-        return when (session.start(profile, OPENVPN_TIMEOUT_MS)) {
+        val outcome = session.start(profile, OPENVPN_TIMEOUT_MS)
+        Log.i(TAG, "${config.name}: OpenVPN $outcome")
+        return when (outcome) {
             OpenVpn.Outcome.Connected -> Attempt.Started
             OpenVpn.Outcome.VpnDenied -> {
                 openvpn = null
