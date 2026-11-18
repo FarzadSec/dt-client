@@ -59,17 +59,18 @@ linux:
 deb:
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
-  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, openvpn]
+  # electron-builder's defaults plus what Electron links that a minimal system lacks (sound, GBM, CUPS) and OpenVPN.
+  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, libasound2, libgbm1, libcups2, openvpn]
   recommends: [libappindicator3-1, network-manager-l2tp]
 rpm:
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
-  depends: [gtk3, libnotify, nss, libXScrnSaver, (libXtst or libXtst6), xdg-utils, at-spi2-core, (libuuid or libuuid1), openvpn]
+  depends: [gtk3, libnotify, nss, libXScrnSaver, (libXtst or libXtst6), xdg-utils, at-spi2-core, (libuuid or libuuid1), alsa-lib, mesa-libgbm, cups-libs, openvpn]
   fpm: ['--rpm-tag', 'Recommends: NetworkManager-l2tp']
 pacman:
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
-  depends: [gtk3, nss, libnotify, libxss, libxtst, xdg-utils, at-spi2-core, util-linux-libs, libsecret, openvpn]
+  depends: [gtk3, nss, libnotify, libxss, libxtst, xdg-utils, at-spi2-core, util-linux-libs, libsecret, alsa-lib, mesa, libcups, openvpn]
   fpm: ['--pacman-optional-depends', 'networkmanager-l2tp: L2TP connections']
 
 # macOS: an installer package that also sets up the root LaunchDaemon (build/pkg-scripts).

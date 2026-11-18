@@ -166,8 +166,11 @@ jobs:
           bin=resources/bin/mac-arm64
           $bin/xray run -test -c smoke/xray-vless.json
           $bin/sing-box check -c smoke/tun.json
+      # One architecture at a time: both builds would share the same intermediate component package.
       - name: Build the installer packages (Intel and Apple silicon)
-        run: npx electron-builder --mac --x64 --arm64 --publish never
+        run: |
+          npx electron-builder --mac --x64 --publish never
+          npx electron-builder --mac --arm64 --publish never
       - name: Install the Apple silicon package, check the helper answers
         run: |
           sudo installer -pkg release/DT-Client-*-mac-arm64.pkg -target /
