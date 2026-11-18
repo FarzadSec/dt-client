@@ -113,7 +113,9 @@ class OpenVpn(private val context: Context, private val host: Host) {
         password = prepared.password
         conf.writeText(prepared.config)
         val proc = try {
-            ProcessBuilder(exe.absolutePath, "--config", conf.absolutePath).directory(dir).redirectErrorStream(true).start()
+            // Android has no /tmp, OpenVPN's default for the files it writes on the way.
+            ProcessBuilder(exe.absolutePath, "--config", conf.absolutePath, "--tmp-dir", context.cacheDir.absolutePath)
+                .directory(dir).redirectErrorStream(true).start()
         } catch (e: IOException) {
             Log.w(TAG, "cannot start OpenVPN: $e")
             conf.delete()

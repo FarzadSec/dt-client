@@ -92,7 +92,7 @@ class OpenVpnTest {
         val socket = java.io.File(dir, "mgmt").apply { delete() }
         val conf = java.io.File(dir, "profile.ovpn")
         conf.writeText(OpenVpnProfile.prepare(OpenVpnProfile.decode(link!!)!!, socket.absolutePath).config)
-        val proc = ProcessBuilder(OpenVpn.binary(context).absolutePath, "--config", conf.absolutePath).directory(dir).redirectErrorStream(true).start()
+        val proc = ProcessBuilder(OpenVpn.binary(context).absolutePath, "--config", conf.absolutePath, "--tmp-dir", context.cacheDir.absolutePath).directory(dir).redirectErrorStream(true).start()
         val output = StringBuilder()
         val reader = Thread { runCatching { proc.inputStream.bufferedReader().forEachLine { synchronized(output) { output.append(it).append(" | ") } } } }.apply { start() }
         val opened = waitFor(10_000) { socket.exists() }
