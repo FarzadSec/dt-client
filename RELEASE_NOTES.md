@@ -1,4 +1,8 @@
-**DT Connect 1.0** — the app formerly called DT Client, under its new name and logo.
+**DT Connect 1.0.1**
+
+- Windows: the L2TP connection is now set up by a script that ships with the app, instead of an encoded PowerShell command, a pattern that security software treats as suspicious. Nothing else changes.
+
+**DT Connect 1.0**: the app formerly called DT Client, under its new name and logo.
 
 - New Android app: a welcome page and sign-in with a **sign-in QR code** (camera, or a QR picture from the gallery), a home page with the server map, recent locations, the plan and this week's protected hours, a location list by country and city, and Protection, Notices and Account tabs.
 - Every app opens `dtconnect://` sign-in links: the link in the bot's delivery message signs in with one tap.

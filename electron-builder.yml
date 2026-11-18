@@ -7,6 +7,7 @@ directories:
 files:
   - dist/**/*
   - '!dist/smoke.js'
+  - '!dist/l2tp-check.js'
   - '!dist/helper/**'
   - '!dist/bin/**'
   - package.json
@@ -28,6 +29,10 @@ protocols:
 
 win:
   target: nsis
+  # What the app runs to add its L2TP/IPsec connection (src/main/os/windows.ts).
+  extraResources:
+    - from: build/windows/l2tp-connection.ps1
+      to: l2tp-connection.ps1
   icon: build/icon.ico
   requestedExecutionLevel: requireAdministrator
   artifactName: DT-Connect-Setup-${version}.exe
