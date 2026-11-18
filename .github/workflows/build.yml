@@ -396,8 +396,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # Only the installers: android-screens is a folder of test screenshots, not a release file.
       - uses: actions/download-artifact@v4
         with:
+          pattern: DT-Connect-*
           path: out
           merge-multiple: true
       - name: Checksums and release
