@@ -3,12 +3,11 @@ package team.datacraft.dtclient
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
-import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.ServerSocket
-import java.net.URL
+import java.net.Socket
 import kotlin.concurrent.thread
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -39,17 +38,19 @@ class EnginesTest {
 
         val target = ServerSocket(0, 10, InetAddress.getByName("127.0.0.1"))
         thread {
-            target.accept().use { it.getOutputStream().write("HTTP/1.0 204 No Content\r\n\r\n".toByteArray()) }
+            runCatching { target.accept().use { it.getOutputStream().write("through xray".toByteArray()) } }
         }
         val socksPort = ServerSocket(0).use { it.localPort }
         // Ad blocking and Iranian sites direct need geosite and geoip categories: the geo files must load.
         val config = XrayConfig.build(JSONObject().put("protocol", "freedom"), socksPort, iranDirect = true, adBlock = true, dns = listOf("1.1.1.1"))
         Core.start(config)
         try {
-            val conn = URL("http://127.0.0.1:${target.localPort}/").openConnection(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", socksPort))) as HttpURLConnection
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
-            assertEquals(204, conn.responseCode)
+            // A plain socket through the SOCKS port: what hev-socks5-tunnel does with every connection.
+            Socket(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", socksPort))).use { socket ->
+                socket.soTimeout = 5000
+                socket.connect(InetSocketAddress("127.0.0.1", target.localPort), 5000)
+                assertEquals("through xray", socket.getInputStream().bufferedReader().readText())
+            }
         } finally {
             Core.stop()
             target.close()
