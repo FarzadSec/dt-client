@@ -270,7 +270,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Xray stopped tagging Go module versions (v1.*) after March 2026, so @latest stays there: the
-      # release's commit gives the same code the desktop app runs.
+      # release's commit gives the same code the desktop app runs. Its wlynxg/anet (Android network
+      # interfaces) links to net internals, which Go allows only with -checklinkname=0, as Xray's own builds do.
       - name: Xray-core for Android (gomobile, all four processor families)
         working-directory: android/core
         env:
@@ -287,7 +288,7 @@ jobs:
           go get golang.org/x/mobile/bind@latest
           go install golang.org/x/mobile/cmd/gomobile@latest
           "$(go env GOPATH)/bin/gomobile" init
-          "$(go env GOPATH)/bin/gomobile" bind -target=android -androidapi 21 -javapkg team.datacraft.dtclient -trimpath -ldflags="-s -w -buildid=" -o ../app/libs/dtcore.aar .
+          "$(go env GOPATH)/bin/gomobile" bind -target=android -androidapi 21 -javapkg team.datacraft.dtclient -trimpath -ldflags="-s -w -buildid= -checklinkname=0" -o ../app/libs/dtcore.aar .
           grep xray-core go.mod
       - name: hev-socks5-tunnel (MIT), the packet-to-SOCKS bridge
         run: |
