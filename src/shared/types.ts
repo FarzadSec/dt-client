@@ -151,6 +151,7 @@ export interface ProfileUpdate {
 
 // What the window can ask the main process for; preload exposes it as window.dt.
 export interface DtApi {
+  os: 'windows' | 'linux' | 'macos';
   session(): Promise<Session | null>;
   login(subLink: string, username: string): Promise<AppProfile>;
   logout(): Promise<void>;

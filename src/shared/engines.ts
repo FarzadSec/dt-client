@@ -1,4 +1,12 @@
+import { enginesOn, type Os } from './platform';
 import type { AppConfig, AppProfile, Engine, PingResult } from './types';
+
+let runsOn: Engine[] = enginesOn('windows');
+
+// Set once at start by each process, so every list leaves out what this system cannot run.
+export function useOs(os: Os): void {
+  runsOn = enginesOn(os);
+}
 
 const xrayProtocols = new Set(['vless', 'vmess', 'trojan', 'shadowsocks', 'hysteria', 'hysteria2', 'wireguard']);
 
@@ -7,10 +15,11 @@ export function runsOnXray(protocol: string, outbound: unknown): boolean {
 }
 
 export function engineOf(config: AppConfig): Engine | null {
-  if (runsOnXray(config.protocol, config.outbound)) return 'xray';
-  if (config.protocol === 'openvpn') return 'openvpn';
-  if (config.protocol === 'l2tp') return 'l2tp';
-  return null;
+  let engine: Engine | null = null;
+  if (runsOnXray(config.protocol, config.outbound)) engine = 'xray';
+  else if (config.protocol === 'openvpn') engine = 'openvpn';
+  else if (config.protocol === 'l2tp') engine = 'l2tp';
+  return engine && runsOn.includes(engine) ? engine : null;
 }
 
 // A location appears in the list only if the app can run something there.

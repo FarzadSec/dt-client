@@ -1,12 +1,31 @@
 import { createHash, randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 
-import { regQuery } from './run';
+import type { Os } from '../../shared/platform';
+import { regQuery, run } from './run';
 
-// MachineGuid survives reinstalling the app, so the device keeps its slot of the device limit.
-export async function deviceId(stored: string | undefined): Promise<string> {
-  const guid = await regQuery('HKLM\\SOFTWARE\\Microsoft\\Cryptography', 'MachineGuid');
-  if (guid) return createHash('sha256').update(`dt-client:${guid.toLowerCase()}`).digest('hex').slice(0, 32);
+// The system's own id survives reinstalling the app, so the device keeps its slot of the device limit.
+async function machineId(system: Os): Promise<string | null> {
+  if (system === 'windows') return regQuery('HKLM\\SOFTWARE\\Microsoft\\Cryptography', 'MachineGuid');
+  if (system === 'linux') {
+    for (const file of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+      try {
+        const id = fs.readFileSync(file, 'utf8').trim();
+        if (id) return id;
+      } catch {
+        // Next one.
+      }
+    }
+    return null;
+  }
+  const out = (await run('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'])).stdout;
+  return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(out)?.[1] ?? null;
+}
+
+export async function deviceId(system: Os, stored: string | undefined): Promise<string> {
+  const id = await machineId(system);
+  if (id) return createHash('sha256').update(`dt-client:${id.toLowerCase()}`).digest('hex').slice(0, 32);
   return stored || randomBytes(16).toString('hex');
 }
 

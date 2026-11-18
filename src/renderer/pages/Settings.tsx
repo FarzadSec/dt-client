@@ -237,9 +237,11 @@ function Split({ t, settings, onChange }: Props) {
 function Privacy({ t, settings, onChange }: Props) {
   return (
     <Group>
-      <Row title={t('webrtc')} hint={t('webrtcHint')}>
-        <Switch label={t('webrtc')} checked={settings.webrtcProtection} onChange={(webrtcProtection) => onChange({ webrtcProtection })} />
-      </Row>
+{window.dt.os !== 'macos' && (
+              <Row title={t('webrtc')} hint={t('webrtcHint')}>
+          <Switch label={t('webrtc')} checked={settings.webrtcProtection} onChange={(webrtcProtection) => onChange({ webrtcProtection })} />
+        </Row>
+      )}
       <Row title={t('timezone')} hint={t('timezoneHint')}>
         <Switch label={t('timezone')} checked={settings.timezoneSpoof} onChange={(timezoneSpoof) => onChange({ timezoneSpoof })} />
       </Row>

@@ -1,3 +1,5 @@
+import type { Os } from '../../shared/platform';
+
 const scheme = 'openvpn://';
 
 // The panel carries the .ovpn profile as base64url after openvpn://.
@@ -8,6 +10,42 @@ export function openvpnProfile(link: string): string {
   return text;
 }
 
-export function openvpnArgs(configPath: string, managementPort: number): string[] {
-  return ['--config', configPath, '--windows-driver', 'wintun', '--management', '127.0.0.1', String(managementPort)];
+// Directives that run programs, read or write files, or open a control port.
+const forbidden = new Set([
+  'up', 'down', 'route-up', 'route-pre-down', 'ipchange', 'tls-verify', 'tls-export-cert', 'auth-user-pass-verify',
+  'client-connect', 'client-disconnect', 'learn-address', 'script-security', 'plugin', 'config', 'cd', 'chroot',
+  'log', 'log-append', 'writepid', 'status', 'daemon', 'askpass', 'iproute', 'dev-node', 'tmp-dir', 'syslog',
+  'setcon', 'replay-persist', 'ifconfig-pool-persist', 'machine-readable-output', 'http-proxy-user-pass', 'echo',
+]);
+// Files are only accepted inline (<ca>…</ca>); a path would be read as root.
+const inlineOnly = new Set(['ca', 'cert', 'key', 'tls-auth', 'tls-crypt', 'tls-crypt-v2', 'extra-certs', 'secret', 'pkcs12', 'crl-verify', 'dh', 'auth-user-pass']);
+
+// The first directive of a profile the root helper must not run, or null when it is safe.
+export function unsafeOpenvpnDirective(profile: string): string | null {
+  let inline: string | null = null;
+  for (const raw of profile.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (inline) {
+      if (line.toLowerCase() === `</${inline}>`) inline = null;
+      continue;
+    }
+    const open = /^<([a-z0-9-]+)>$/i.exec(line);
+    if (open) {
+      inline = open[1].toLowerCase();
+      continue;
+    }
+    if (line === '' || line.startsWith('#') || line.startsWith(';')) continue;
+    const [first, ...rest] = line.split(/\s+/);
+    const name = first.replace(/^-+/, '').toLowerCase();
+    if (forbidden.has(name) || name.startsWith('management')) return name;
+    if (inlineOnly.has(name) && rest.length > 0 && rest[0] !== '[inline]') return name;
+  }
+  return inline ? `<${inline}>` : null;
+}
+
+export function openvpnArgs(configPath: string, managementPort: number, os: Os): string[] {
+  const args = ['--config', configPath, '--management', '127.0.0.1', String(managementPort), '--script-security', '1'];
+  if (os === 'windows') return [...args, '--windows-driver', 'wintun'];
+  // A fixed name, so the helper can point systemd-resolved at the tunnel afterwards.
+  return os === 'linux' ? [...args, '--dev-type', 'tun', '--dev', 'dtvpn0'] : args;
 }

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
+import { osOf } from '../shared/platform';
 import type { DtApi, ProfileUpdate, Status } from '../shared/types';
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -9,6 +10,7 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 }
 
 const api: DtApi = {
+  os: osOf(process.platform),
   session: () => invoke('session'),
   login: (subLink, username) => invoke('login', subLink, username),
   logout: () => invoke('logout'),

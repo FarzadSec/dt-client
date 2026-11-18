@@ -5,16 +5,13 @@ import path from 'node:path';
 
 import type { AppProfile, Engine, Settings, Status } from '../shared/types';
 import { candidates, type Candidate } from './candidates';
-import { addConnectionScript, l2tpAccount, l2tpConnectionName } from './configs/l2tp';
-import { openvpnArgs, openvpnProfile } from './configs/openvpn';
+import { l2tpAccount } from './configs/l2tp';
+import { openvpnArgs, openvpnProfile, unsafeOpenvpnDirective } from './configs/openvpn';
 import { singboxTunConfig } from './configs/singbox';
 import { dnsServers, xrayConfig } from './configs/xray';
 import { EngineProcess, waitForLine } from './engines/process';
 import { freePort, probeThroughProxy, waitForPort } from './health';
-import { allowL2tpBehindNat } from './system/l2tpNat';
-import { powershell, run } from './system/run';
-import { applyZone, restoreZone } from './system/timezone';
-import { protectWebrtc, restoreWebrtc, type WebrtcBackup } from './system/webrtc';
+import type { L2tpDriver, SystemKit } from './os/kit';
 
 export interface VpnPaths {
   bin: string;
@@ -43,6 +40,7 @@ class XrayConnection implements Connection {
     private readonly candidate: Candidate,
     private readonly settings: Settings,
     private readonly paths: VpnPaths,
+    private readonly kit: SystemKit,
   ) {}
 
   onLost(cb: (blocking: boolean) => void): void {
@@ -57,7 +55,7 @@ class XrayConnection implements Connection {
     const dns = dnsServers(this.settings.dns);
     const cfg = xrayConfig(outbound, { socksPort, httpPort, iranDirect: this.settings.iranDirect, adBlock: this.settings.adBlock, dns });
     writePrivate(xrayFile, JSON.stringify(cfg, null, 2));
-    const xray = new EngineProcess('xray', path.join(this.paths.bin, 'xray.exe'), ['run', '-c', xrayFile], path.join(this.paths.work, 'xray.log'), this.paths.bin);
+    const xray = new EngineProcess('xray', path.join(this.paths.bin, this.kit.exe('xray')), ['run', '-c', xrayFile], path.join(this.paths.work, 'xray.log'), this.paths.bin);
     this.xray = xray;
     xray.start();
     if (!(await waitForPort(socksPort, 8000, () => xray.alive)) || !(await probeThroughProxy(httpPort))) {
@@ -67,10 +65,11 @@ class XrayConnection implements Connection {
 
     const tunFile = path.join(this.paths.work, 'tun.json');
     const bypassApps = this.settings.splitTunneling ? this.settings.splitApps.map((a) => a.name) : [];
-    writePrivate(tunFile, JSON.stringify(singboxTunConfig({ socksPort, strictRoute: this.settings.killSwitch, dns: dns[0], bypassApps }), null, 2));
+    const tunConfig = singboxTunConfig({ os: this.kit.os, interfaceName: this.kit.tunName, socksPort, strictRoute: this.settings.killSwitch, dns: dns[0], bypassApps });
+    writePrivate(tunFile, JSON.stringify(tunConfig, null, 2));
     const tun = new EngineProcess(
       'sing-box',
-      path.join(this.paths.bin, 'sing-box.exe'),
+      path.join(this.paths.bin, this.kit.exe('sing-box')),
       ['run', '-c', tunFile, '-D', this.paths.work],
       path.join(this.paths.work, 'sing-box.log'),
       this.paths.bin,
@@ -111,7 +110,9 @@ class OpenvpnConnection implements Connection {
 
   constructor(
     private readonly candidate: Candidate,
+    private readonly settings: Settings,
     private readonly paths: VpnPaths,
+    private readonly kit: SystemKit,
   ) {}
 
   onLost(cb: (blocking: boolean) => void): void {
@@ -119,11 +120,14 @@ class OpenvpnConnection implements Connection {
   }
 
   async start(): Promise<boolean> {
+    const exe = this.kit.openvpnBinary(this.paths.bin);
+    if (!exe) throw new Error('engine_missing:openvpn');
+    const profile = openvpnProfile(this.candidate.config.link);
+    if (unsafeOpenvpnDirective(profile)) return false;
     const profileFile = path.join(this.paths.work, 'profile.ovpn');
-    writePrivate(profileFile, openvpnProfile(this.candidate.config.link));
+    writePrivate(profileFile, profile);
     this.managementPort = await freePort();
-    const dir = path.join(this.paths.bin, 'openvpn');
-    const proc = new EngineProcess('openvpn', path.join(dir, 'openvpn.exe'), openvpnArgs(profileFile, this.managementPort), path.join(this.paths.work, 'openvpn.log'), dir);
+    const proc = new EngineProcess('openvpn', exe, openvpnArgs(profileFile, this.managementPort, this.kit.os), path.join(this.paths.work, 'openvpn.log'), path.dirname(exe));
     this.proc = proc;
     proc.start();
     const up = await waitForLine(proc, /Initialization Sequence Completed/, /AUTH_FAILED|Exiting due to fatal error|All TAP-Windows adapters/, 45_000);
@@ -131,6 +135,7 @@ class OpenvpnConnection implements Connection {
       await this.stop();
       return false;
     }
+    await this.kit.openvpnUp(dnsServers(this.settings.dns));
     proc.on('exit', ({ expected }: { expected: boolean }) => {
       if (!expected) this.lost?.(false);
     });
@@ -155,24 +160,23 @@ class L2tpConnection implements Connection {
   readonly engine = 'l2tp' as const;
   private watch: NodeJS.Timeout | null = null;
   private lost: ((blocking: boolean) => void) | null = null;
-  rebootNeeded = false;
+  notice: string | undefined;
 
-  constructor(private readonly candidate: Candidate) {}
+  constructor(
+    private readonly candidate: Candidate,
+    private readonly driver: L2tpDriver,
+  ) {}
 
   onLost(cb: (blocking: boolean) => void): void {
     this.lost = cb;
   }
 
   async start(): Promise<boolean> {
-    const account = l2tpAccount(this.candidate.config.link);
-    this.rebootNeeded = await allowL2tpBehindNat();
-    const added = await powershell(addConnectionScript(account));
-    if (added.code !== 0) return false;
-    const dial = await run('rasdial.exe', [l2tpConnectionName, account.username, account.password], 90_000);
-    if (dial.code !== 0) return false;
+    const result = await this.driver.connect(l2tpAccount(this.candidate.config.link));
+    this.notice = result.notice;
+    if (!result.ok) return false;
     this.watch = setInterval(async () => {
-      const list = await run('rasdial.exe', []);
-      if (!list.stdout.includes(l2tpConnectionName)) {
+      if (!(await this.driver.isUp())) {
         this.clearWatch();
         this.lost?.(false);
       }
@@ -187,7 +191,7 @@ class L2tpConnection implements Connection {
 
   async stop(): Promise<void> {
     this.clearWatch();
-    await run('rasdial.exe', [l2tpConnectionName, '/disconnect']);
+    await this.driver.disconnect();
   }
 }
 
@@ -195,9 +199,12 @@ export class Vpn extends EventEmitter {
   private current: Status = { state: 'disconnected' };
   private connection: Connection | null = null;
   private zoneBackup: string | null = null;
-  private webrtcBackup: WebrtcBackup = {};
+  private webrtcBackup: Record<string, string | null> = {};
 
-  constructor(private readonly paths: VpnPaths) {
+  constructor(
+    private readonly paths: VpnPaths,
+    private readonly kit: SystemKit,
+  ) {
     super();
     fs.mkdirSync(paths.work, { recursive: true });
   }
@@ -224,13 +231,15 @@ export class Vpn extends EventEmitter {
       const serverId = candidate.config.locationId ?? null;
       this.set({ state: 'connecting', locationId, serverId, configName: candidate.config.name, protocol: candidate.config.protocol });
       const connection = this.connectionFor(candidate, settings);
+      if (!connection) continue;
       let ok = false;
       try {
         ok = await connection.start();
       } catch (err) {
-        if (String(err).includes('engine_missing')) notice = 'engine_missing';
+        if (String(err).includes('engine_missing:openvpn') && this.kit.os !== 'windows') notice = this.kit.os === 'macos' ? 'openvpn_missing_mac' : 'openvpn_missing';
+        else if (String(err).includes('engine_missing')) notice = 'engine_missing';
       }
-      if (connection instanceof L2tpConnection && connection.rebootNeeded) notice = 'reboot_for_l2tp';
+      if (connection instanceof L2tpConnection && connection.notice) notice = connection.notice;
       if (!ok) continue;
       if (this.current.state !== 'connecting') {
         await connection.stop();
@@ -252,27 +261,27 @@ export class Vpn extends EventEmitter {
     return this.set({ state: 'disconnected', error: 'all_failed', notice });
   }
 
-  private connectionFor(candidate: Candidate, settings: Settings): Connection {
+  private connectionFor(candidate: Candidate, settings: Settings): Connection | null {
     switch (candidate.engine) {
       case 'xray':
-        return new XrayConnection(candidate, settings, this.paths);
+        return new XrayConnection(candidate, settings, this.paths, this.kit);
       case 'openvpn':
-        return new OpenvpnConnection(candidate, this.paths);
+        return new OpenvpnConnection(candidate, settings, this.paths, this.kit);
       default:
-        return new L2tpConnection(candidate);
+        return this.kit.l2tp ? new L2tpConnection(candidate, this.kit.l2tp) : null;
     }
   }
 
   private async applyPrivacy(profile: AppProfile, settings: Settings, locationId: number | null): Promise<void> {
-    if (settings.webrtcProtection) this.webrtcBackup = await protectWebrtc();
+    if (settings.webrtcProtection) this.webrtcBackup = await this.kit.protectWebrtc();
     const timezone = profile.locations.find((l) => l.id === locationId)?.timezone;
-    if (settings.timezoneSpoof && timezone) this.zoneBackup = await applyZone(timezone);
+    if (settings.timezoneSpoof && timezone) this.zoneBackup = await this.kit.applyZone(timezone);
   }
 
   private async restorePrivacy(): Promise<void> {
-    await restoreWebrtc(this.webrtcBackup);
+    await this.kit.restoreWebrtc(this.webrtcBackup);
     this.webrtcBackup = {};
-    await restoreZone(this.zoneBackup);
+    await this.kit.restoreZone(this.zoneBackup);
     this.zoneBackup = null;
   }
 

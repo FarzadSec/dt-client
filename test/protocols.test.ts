@@ -81,7 +81,7 @@ describe('candidates', () => {
 describe('OpenVPN', () => {
   it('decodes the profile and runs it on wintun with a management port', () => {
     expect(openvpnProfile(ovpnLink)).toBe(ovpnText);
-    expect(openvpnArgs('C:\\p.ovpn', 7505)).toEqual(['--config', 'C:\\p.ovpn', '--windows-driver', 'wintun', '--management', '127.0.0.1', '7505']);
+    expect(openvpnArgs('C:\\p.ovpn', 7505, 'windows')).toEqual(['--config', 'C:\\p.ovpn', '--management', '127.0.0.1', '7505', '--script-security', '1', '--windows-driver', 'wintun']);
     expect(() => openvpnProfile('openvpn://' + Buffer.from('hello').toString('base64url'))).toThrow();
   });
 });
@@ -103,5 +103,17 @@ describe('windowsZone', () => {
     expect(windowsZone('Asia/Tehran')).toBe('Iran Standard Time');
     expect(windowsZone('Mars/Olympus')).toBeNull();
     expect(windowsZone('')).toBeNull();
+  });
+});
+
+describe('engineOf on each system', () => {
+  it('leaves L2TP out on macOS, which has no client the app can set up', async () => {
+    const { engineOf, useOs } = await import('../src/shared/engines');
+    const l2tp = { protocol: 'l2tp', name: 'l', link: 'l2tp://u:p@h?psk=k' };
+    useOs('macos');
+    expect(engineOf(l2tp)).toBeNull();
+    useOs('linux');
+    expect(engineOf(l2tp)).toBe('l2tp');
+    useOs('windows');
   });
 });

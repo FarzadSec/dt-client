@@ -1,7 +1,7 @@
 {
   "name": "dt-client",
   "productName": "DT Client",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "DataCraft Team VPN client",
   "author": "DataCraft Team",
   "license": "UNLICENSED",
@@ -15,7 +15,9 @@
     "test": "vitest run",
     "start": "npm run build && electron .",
     "fetch-binaries": "node scripts/fetch-binaries.mjs",
-    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never"
+    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --x64 --arm64 --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -41,5 +43,7 @@
     "vitest": "^5.1.0",
     "windows-iana": "^5.1.0",
     "world-atlas": "^2.0.2"
-  }
+  },
+  "desktopName": "dt-client.desktop",
+  "homepage": "https://github.com/FarzadSec/dt-client"
 }

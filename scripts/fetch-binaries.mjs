@@ -1,10 +1,17 @@
-// Downloads the engines DT Client runs into resources/bin (CI, Windows): Xray, sing-box, OpenVPN and wintun.
+// Downloads the engines DT Client runs into resources/bin/<os>-<arch> (CI):
+//   node scripts/fetch-binaries.mjs win x64 | linux x64 | linux arm64 | mac x64 | mac arm64
+// Xray and sing-box everywhere; on Windows also OpenVPN 2.6 and wintun (run there: it unpacks an MSI).
+// Linux and macOS use the system's OpenVPN. Xray's archives are checked against its published digests.
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const bin = path.resolve('resources/bin');
+const target = process.argv[2] ?? 'win';
+const arch = process.argv[3] ?? 'x64';
+if (!['win', 'linux', 'mac'].includes(target) || !['x64', 'arm64'].includes(arch)) throw new Error(`unknown target ${target} ${arch}`);
+const bin = path.resolve('resources/bin', `${target}-${arch}`);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-bin-'));
 const headers = { 'User-Agent': 'dt-client-build', Accept: 'application/vnd.github+json' };
 if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
@@ -24,8 +31,25 @@ async function download(url, file) {
 }
 
 function unzip(zip, dest) {
-  execFileSync('powershell.exe', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${dest}' -Force`], { stdio: 'inherit' });
+  fs.mkdirSync(dest, { recursive: true });
+  if (process.platform === 'win32') {
+    execFileSync('powershell.exe', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${dest}' -Force`], { stdio: 'inherit' });
+  } else if (zip.endsWith('.zip')) {
+    execFileSync('unzip', ['-q', '-o', zip, '-d', dest], { stdio: 'inherit' });
+  } else {
+    execFileSync('tar', ['-xzf', zip, '-C', dest], { stdio: 'inherit' });
+  }
   return dest;
+}
+
+// Xray publishes Xray-<os>.zip.dgst beside each archive, with its SHA2-256.
+async function checkXrayDigest(rel, name, file) {
+  const dgst = rel.assets.find((x) => x.name === `${name}.dgst`);
+  if (!dgst) throw new Error(`${rel.tag_name}: no digest for ${name}`);
+  const text = Buffer.from(await (await fetch(dgst.browser_download_url, { headers: { 'User-Agent': 'dt-client-build' }, redirect: 'follow' })).arrayBuffer()).toString();
+  const want = /SHA2-256=\s*([0-9a-f]{64})/i.exec(text)?.[1];
+  const got = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  if (!want || want.toLowerCase() !== got) throw new Error(`${name}: digest mismatch`);
 }
 
 function find(dir, name) {
@@ -52,17 +76,34 @@ function asset(rel, pattern) {
   return a.browser_download_url;
 }
 
-fs.mkdirSync(path.join(bin, 'openvpn'), { recursive: true });
+fs.mkdirSync(bin, { recursive: true });
+const exe = target === 'win' ? '.exe' : '';
 
+const xrayNames = { 'win-x64': 'Xray-windows-64.zip', 'linux-x64': 'Xray-linux-64.zip', 'linux-arm64': 'Xray-linux-arm64-v8a.zip', 'mac-x64': 'Xray-macos-64.zip', 'mac-arm64': 'Xray-macos-arm64-v8a.zip' };
+const xrayName = xrayNames[`${target}-${arch}`];
+if (!xrayName) throw new Error(`no Xray build for ${target} ${arch}`);
 const xray = await release('XTLS/Xray-core', () => true);
-const xrayDir = unzip(await download(asset(xray, /^Xray-windows-64\.zip$/), path.join(tmp, 'xray.zip')), path.join(tmp, 'xray'));
-for (const f of ['xray.exe', 'geoip.dat', 'geosite.dat']) fs.copyFileSync(path.join(xrayDir, f), path.join(bin, f));
+const xrayZip = await download(asset(xray, new RegExp(`^${xrayName.replace(/\./g, '\\.')}$`)), path.join(tmp, 'xray.zip'));
+await checkXrayDigest(xray, xrayName, xrayZip);
+const xrayDir = unzip(xrayZip, path.join(tmp, 'xray'));
+for (const f of [`xray${exe}`, 'geoip.dat', 'geosite.dat']) fs.copyFileSync(path.join(xrayDir, f), path.join(bin, f));
 versions.push(`xray ${xray.tag_name}`);
 
+const sbNames = { 'win-x64': /windows-amd64\.zip$/, 'linux-x64': /linux-amd64\.tar\.gz$/, 'linux-arm64': /linux-arm64\.tar\.gz$/, 'mac-x64': /darwin-amd64\.tar\.gz$/, 'mac-arm64': /darwin-arm64\.tar\.gz$/ };
 const singbox = await release('SagerNet/sing-box', () => true);
-const sbDir = unzip(await download(asset(singbox, /windows-amd64\.zip$/), path.join(tmp, 'sing-box.zip')), path.join(tmp, 'sing-box'));
-fs.copyFileSync(find(sbDir, 'sing-box.exe'), path.join(bin, 'sing-box.exe'));
+const sbPattern = sbNames[`${target}-${arch}`];
+const sbArchive = await download(asset(singbox, sbPattern), path.join(tmp, target === 'win' ? 'sing-box.zip' : 'sing-box.tar.gz'));
+const sbDir = unzip(sbArchive, path.join(tmp, 'sing-box'));
+fs.copyFileSync(find(sbDir, `sing-box${exe}`), path.join(bin, `sing-box${exe}`));
 versions.push(`sing-box ${singbox.tag_name}`);
+
+if (target !== 'win') {
+  for (const f of ['xray', 'sing-box']) fs.chmodSync(path.join(bin, f), 0o755);
+  fs.writeFileSync(path.join(bin, 'VERSIONS.txt'), versions.join('\n') + '\n');
+  console.log(versions.join('\n'));
+  process.exit(0);
+}
+fs.mkdirSync(path.join(bin, 'openvpn'), { recursive: true });
 
 // 2.6 is the last line that drives wintun, which needs no driver installed; 2.7 dropped it.
 // Its Windows builds are tags of openvpn-build; a tag can precede its published MSI.

@@ -62,7 +62,7 @@ describe('xrayConfig', () => {
 
 describe('singboxTunConfig', () => {
   it('sends everything to the local proxy except the engines themselves', () => {
-    const cfg = singboxTunConfig({ socksPort: 20808, strictRoute: true }) as {
+    const cfg = singboxTunConfig({ os: 'windows', interfaceName: 'DT Client', socksPort: 20808, strictRoute: true }) as {
       inbounds: { strict_route: boolean }[];
       outbounds: { tag: string; server_port?: number }[];
       route: { final: string; rules: Record<string, unknown>[] };
@@ -74,7 +74,7 @@ describe('singboxTunConfig', () => {
   });
 
   it('lets the apps chosen for split tunneling and the user DNS through', () => {
-    const cfg = singboxTunConfig({ socksPort: 1, strictRoute: true, dns: '9.9.9.9', bypassApps: ['steam.exe'] }) as {
+    const cfg = singboxTunConfig({ os: 'windows', socksPort: 1, strictRoute: true, dns: '9.9.9.9', bypassApps: ['steam.exe'] }) as {
       dns: { servers: { tag: string; server?: string }[] };
       route: { rules: Record<string, unknown>[] };
     };
@@ -82,8 +82,16 @@ describe('singboxTunConfig', () => {
     expect(cfg.dns.servers.find((s) => s.tag === 'remote')?.server).toBe('9.9.9.9');
   });
 
+  it('names the engines without .exe on Linux and macOS, and lets macOS name its own utun', () => {
+    const linux = singboxTunConfig({ os: 'linux', interfaceName: 'dtclient0', socksPort: 1, strictRoute: true }) as { inbounds: { interface_name?: string }[]; route: { rules: Record<string, unknown>[] } };
+    expect(linux.route.rules).toContainEqual({ process_name: ['xray', 'sing-box'], outbound: 'direct' });
+    expect(linux.inbounds[0].interface_name).toBe('dtclient0');
+    const mac = singboxTunConfig({ os: 'macos', socksPort: 1, strictRoute: true }) as { inbounds: Record<string, unknown>[] };
+    expect('interface_name' in mac.inbounds[0]).toBe(false);
+  });
+
   it('lets traffic out when the kill switch is off', () => {
-    const cfg = singboxTunConfig({ socksPort: 1, strictRoute: false }) as { inbounds: { strict_route: boolean }[] };
+    const cfg = singboxTunConfig({ os: 'windows', socksPort: 1, strictRoute: false }) as { inbounds: { strict_route: boolean }[] };
     expect(cfg.inbounds[0].strict_route).toBe(false);
   });
 });

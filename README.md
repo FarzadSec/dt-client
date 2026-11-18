@@ -2,7 +2,36 @@
 
 The VPN app of DataCraft Team. A customer signs in with the subscription link of their service and their username; the app then shows their account and servers and connects with the protocols the service offers.
 
-Version 0.1 runs on Windows 10 and 11 (64-bit). macOS, Linux and Android follow. iOS users keep using the subscription link in Streisand, Happ or other apps, and share the same device limit with the app.
+Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedora, RHEL, openSUSE, Arch and Manjaro; x64 and ARM64) and macOS 12 or later (Intel and Apple silicon). Android follows. iOS users keep using the subscription link in Streisand, Happ or other apps, and share the same device limit with the app.
+
+## Installing
+
+| System | Installer | How |
+| --- | --- | --- |
+| Windows | `DT-Client-Setup-<version>.exe` | Run it. Windows SmartScreen asks once (More info → Run anyway) until the installer is code-signed. |
+| Debian, Ubuntu, Mint, Pop!_OS | `DT-Client-<version>-linux-amd64.deb` (`arm64` on ARM) | `sudo apt install ./DT-Client-<version>-linux-amd64.deb` |
+| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `DT-Client-<version>-linux-x86_64.rpm` (`aarch64` on ARM) | `sudo dnf install ./DT-Client-<version>-linux-x86_64.rpm` (openSUSE: `sudo zypper install …`) |
+| Arch, Manjaro, EndeavourOS | `DT-Client-<version>-linux-x64.pacman` (`aarch64` on ARM) | `sudo pacman -U ./DT-Client-<version>-linux-x64.pacman` |
+| macOS, Apple silicon | `DT-Client-<version>-mac-arm64.pkg` | Open it. Until the package is notarized macOS refuses the first time: open **System Settings → Privacy & Security** and press **Open Anyway**. |
+| macOS, Intel | `DT-Client-<version>-mac-x64.pkg` | As above. |
+
+Each package installs the app and its helper service and removes both when uninstalled (`sudo apt remove dt-client`, `sudo dnf remove dt-client`, `sudo pacman -R dt-client`; on macOS `sudo "/Applications/DT Client.app/Contents/Resources/uninstall.sh"`). Nothing else is installed or left running. Every release lists the SHA-256 of each file in `SHA256SUMS.txt`.
+
+### Linux and macOS: the helper
+
+A VPN needs administrator rights for the tunnel, routes, DNS and timezone, while the app's window should run as the user. So on Linux and macOS the engines run in a small root helper, the same program started without its window: a systemd service (`dt-client-helper`) on Linux and a LaunchDaemon (`team.datacraft.dtclient.helper`) on macOS. The app talks to it over a local socket (`/run/dt-client/helper.sock`, `/var/run/dt-client.sock`) with four requests: who are you, status, connect, disconnect. The helper checks what it is given, since anyone on the computer can reach the socket: OpenVPN profiles that would run programs, read files or open a control port are refused, Xray outbounds lose any file they would read, and DNS, timezone and program names must be plain values.
+
+What differs by system:
+
+| | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| Xray protocols and WireGuard | ✓ | ✓ | ✓ |
+| OpenVPN | bundled (2.6, wintun) | the system's `openvpn` package (installed with the app) | Homebrew's: `brew install openvpn` |
+| L2TP/IPsec | Windows' own client | NetworkManager with its L2TP plugin (`network-manager-l2tp`, `NetworkManager-l2tp` or `networkmanager-l2tp`, recommended by the package) | not offered: macOS sets up L2TP only from a profile the user installs by hand |
+| Kill switch, split tunneling, Iranian sites direct | ✓ | ✓ | ✓ |
+| WebRTC leak protection | Chrome, Edge, Brave policy | the same policy as a file in `/etc/…/policies/managed` | not offered |
+| Match timezone | `tzutil` | `timedatectl` | `systemsetup` |
+| Launch at startup | scheduled task | `~/.config/autostart` | login item |
 
 ## How it works
 
@@ -59,8 +88,8 @@ npm run typecheck
 npm run build     # dist/
 ```
 
-`node scripts/fetch-binaries.mjs` (Windows) downloads the engines into `resources/bin`: the latest Xray and sing-box, OpenVPN 2.6 (the last line that drives wintun) from its MSI, and wintun. `npm run dist:win` builds `release/DT-Client-Setup-<version>.exe`.
+`node scripts/fetch-binaries.mjs <win|linux|mac> <x64|arm64>` downloads the engines into `resources/bin/<os>-<arch>`: the latest Xray (checked against its published SHA-256) and sing-box from their GitHub releases, and on Windows OpenVPN 2.6 (the last line that drives wintun) from its MSI, and wintun. `npm run dist:win`, `dist:linux` and `dist:mac` build the installers into `release/`. The helper is `src/helper/helper.ts`, bundled to `dist/helper/helper.js`.
 
-CI (`.github/workflows/build.yml`) runs the tests on Linux, then on Windows fetches the engines, checks the configurations the app writes with `xray run -test` and `sing-box check`, and builds the installer, uploaded as the `DT-Client-Setup` artifact. A `v*` tag publishes it as a release.
+CI (`.github/workflows/build.yml`) runs the tests, then for each system fetches the engines, checks the configurations the app writes with the real `xray run -test` and `sing-box check`, and builds the installers. On Linux it installs the deb on the runner, checks the helper service answers on its socket and removes the package, and installs the deb, rpm and pacman packages in Debian, Ubuntu, Fedora and Arch containers to check every dependency resolves. macOS (Intel and Apple silicon from one runner) builds on `v*` tags and when the workflow is started by hand with **macOS** ticked; it installs the Apple silicon package, checks the signature, that the helper answers, and uninstalls. A `v*` tag publishes every installer with `SHA256SUMS.txt` as a release.
 
-The installer is not code-signed yet, so Windows SmartScreen asks once before running it (More info → Run anyway).
+Nothing is code-signed with a paid certificate yet: Windows SmartScreen asks once (More info → Run anyway) and macOS needs **Open Anyway** once. The macOS app is signed ad hoc, which Apple silicon requires to run at all. A Windows code-signing certificate and an Apple Developer ID (with notarization) remove both prompts; the build only needs them added as secrets.

@@ -4,13 +4,17 @@ import path from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerMonitor, safeStorage, shell, Tray } from 'electron';
 
 import { addSpan, pushRecent } from '../shared/activity';
-import { engineOf } from '../shared/engines';
+import { engineOf, useOs } from '../shared/engines';
+import { helperSocket } from '../shared/helperProtocol';
+import { osOf } from '../shared/platform';
 import type { AppProfile, PingResult, ProfileUpdate, Settings, SplitApp, Status } from '../shared/types';
 import { ApiError, AppApi } from './api';
 import { answersOnUdp, serverAddress } from './candidates';
 import { tcpPing } from './health';
 import { appApiBase, LinkError } from './link';
+import { windowsKit } from './os/windows';
 import { icmpPing } from './ping';
+import { RemoteVpn } from './remoteVpn';
 import { Store } from './store';
 import { setAutostart } from './system/autostart';
 import { deviceId, deviceName } from './system/device';
@@ -20,7 +24,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
 
-const userAgent = `DTClient/${app.getVersion()} (windows)`;
+const system = osOf(process.platform);
+useOs(system);
+const userAgent = `DTClient/${app.getVersion()} (${system})`;
 const binDir = app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(app.getAppPath(), 'resources', 'bin');
 const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(app.getAppPath(), 'build', 'icon.png');
 const titleBarHeight = 56;
@@ -29,7 +35,8 @@ let window: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 let store: Store;
-let vpn: Vpn;
+// Windows runs the engines itself, as administrator; Linux and macOS ask the root helper.
+let vpn: Vpn | RemoteVpn;
 let ready = false;
 let profileCache: AppProfile | null = null;
 let lastStatus: Status = { state: 'disconnected' };
@@ -62,9 +69,9 @@ function handle<A extends unknown[], T>(channel: string, fn: (...args: A) => Pro
 }
 
 async function device() {
-  const id = await deviceId(store.deviceIdFallback());
+  const id = await deviceId(system, store.deviceIdFallback());
   if (!store.deviceIdFallback()) store.saveDeviceIdFallback(id);
-  return { deviceId: id, deviceName: deviceName(), os: 'windows', osVersion: os.release(), appVersion: app.getVersion() };
+  return { deviceId: id, deviceName: deviceName(), os: system, osVersion: os.release(), appVersion: app.getVersion() };
 }
 
 async function login(subLink: string, username: string): Promise<AppProfile> {
@@ -172,18 +179,22 @@ async function connect(locationId: number | null): Promise<Status> {
 }
 
 async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
-  if (patch.startWithWindows !== undefined && app.isPackaged) await setAutostart(patch.startWithWindows, process.execPath);
+  if (patch.startWithWindows !== undefined && app.isPackaged) await setAutostart(system, patch.startWithWindows, process.env.APPIMAGE ?? process.execPath);
   const settings = store.saveSettings(patch);
   if (patch.theme) applyTheme(settings);
   return settings;
 }
 
+// sing-box matches a program by its file name: name.exe on Windows, the executable elsewhere.
 async function pickApp(): Promise<SplitApp | null> {
-  const options = { properties: ['openFile' as const], filters: [{ name: 'Programs', extensions: ['exe'] }] };
+  const filters = system === 'windows' ? [{ name: 'Programs', extensions: ['exe'] }] : system === 'macos' ? [{ name: 'Applications', extensions: ['app'] }] : [];
+  const options = { properties: ['openFile' as const], filters, defaultPath: system === 'macos' ? '/Applications' : undefined };
   const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
   const file = result.filePaths[0];
   if (result.canceled || !file) return null;
-  return { name: path.basename(file).toLowerCase(), path: file };
+  const base = path.basename(file);
+  if (system === 'windows') return { name: base.toLowerCase(), path: file };
+  return { name: system === 'macos' ? base.replace(/\.app$/i, '') : base, path: file };
 }
 
 async function appIcon(file: string): Promise<string | null> {
@@ -202,8 +213,17 @@ function applyTheme(settings: Settings): void {
 
 function paintWindowFrame(): void {
   const dark = nativeTheme.shouldUseDarkColors;
-  window?.setTitleBarOverlay({ color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight });
+  if (system === 'windows') window?.setTitleBarOverlay({ color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight });
   window?.setBackgroundColor(dark ? '#111317' : '#f3f4f7');
+}
+
+// Windows draws its buttons over the app's own title bar, macOS its traffic lights; Linux keeps the system's frame.
+function windowChrome(dark: boolean): Partial<Electron.BrowserWindowConstructorOptions> {
+  if (system === 'windows') {
+    return { titleBarStyle: 'hidden', titleBarOverlay: { color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight } };
+  }
+  if (system === 'macos') return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 20 } };
+  return { autoHideMenuBar: true };
 }
 
 const notices = {
@@ -291,8 +311,7 @@ function createWindow(show: boolean): void {
     title: 'DT Client',
     icon: iconPath,
     backgroundColor: dark ? '#111317' : '#f3f4f7',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: dark ? '#111317' : '#f3f4f7', symbolColor: dark ? '#c7ccd6' : '#3a3f4a', height: titleBarHeight },
+    ...windowChrome(dark),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
@@ -313,11 +332,19 @@ function createWindow(show: boolean): void {
 app.on('second-instance', showWindow);
 
 app.whenReady().then(async () => {
+  // Linux without a keyring has no safeStorage; the file is then only private to the user (0600).
+  const sealing = safeStorage.isEncryptionAvailable();
   store = new Store(path.join(app.getPath('userData'), 'state.json'), {
-    encrypt: (text) => safeStorage.encryptString(text).toString('base64'),
-    decrypt: (sealed) => safeStorage.decryptString(Buffer.from(sealed, 'base64')),
+    encrypt: (text) => (sealing ? safeStorage.encryptString(text).toString('base64') : `plain:${Buffer.from(text).toString('base64')}`),
+    decrypt: (sealed) => (sealed.startsWith('plain:') ? Buffer.from(sealed.slice(6), 'base64').toString() : safeStorage.decryptString(Buffer.from(sealed, 'base64'))),
   });
-  vpn = new Vpn({ bin: binDir, work: path.join(app.getPath('userData'), 'run') });
+  if (system === 'windows') {
+    vpn = new Vpn({ bin: binDir, work: path.join(app.getPath('userData'), 'run') }, windowsKit);
+  } else {
+    const remote = new RemoteVpn(helperSocket[system]);
+    vpn = remote;
+    void remote.sync();
+  }
   profileCache = store.profile();
   noticesKnownUpTo = Math.max(0, ...(profileCache?.notices ?? []).map((n) => n.id));
   nativeTheme.themeSource = store.settings().theme;

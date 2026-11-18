@@ -1,0 +1,36 @@
+#!/bin/sh
+# DT Client's helper: the root LaunchDaemon that runs the VPN engines for the app.
+PLIST=/Library/LaunchDaemons/team.datacraft.dtclient.helper.plist
+APP="/Applications/DT Client.app"
+mkdir -p "/Library/Application Support/DT Client"
+chmod 700 "/Library/Application Support/DT Client"
+cat > "$PLIST" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>team.datacraft.dtclient.helper</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$APP/Contents/MacOS/DT Client</string>
+    <string>$APP/Contents/Resources/helper/helper.js</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ELECTRON_RUN_AS_NODE</key>
+    <string>1</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardErrorPath</key>
+  <string>/Library/Application Support/DT Client/helper.log</string>
+</dict>
+</plist>
+PLISTEOF
+chown root:wheel "$PLIST"
+chmod 644 "$PLIST"
+launchctl bootstrap system "$PLIST" 2>/dev/null || launchctl load -w "$PLIST"
+exit 0

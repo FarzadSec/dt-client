@@ -1639,3 +1639,20 @@ select {
 [dir='rtl'] .notice-center {
   inset-inline-end: 16px;
 }
+
+/* Title bar: Windows draws its buttons on the right, macOS its traffic lights on the left; Linux has its own frame. */
+[data-os='linux'] .topbar,
+[data-os='linux'][dir='rtl'] .topbar {
+  padding: 0 16px;
+  -webkit-app-region: no-drag;
+}
+
+[data-os='macos'] .topbar,
+[data-os='macos'][dir='rtl'] .topbar {
+  padding: 0 16px 0 88px;
+}
+
+[data-os='linux'] .notice-center,
+[data-os='macos'] .notice-center {
+  inset-inline-end: 16px;
+}

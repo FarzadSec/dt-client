@@ -1,15 +1,20 @@
+import type { Os } from '../../shared/platform';
+
 export interface TunOptions {
+  os: Os;
+  // macOS names its tunnels utunN itself.
+  interfaceName?: string;
   socksPort: number;
   strictRoute: boolean;
   dns?: string;
-  // .exe names whose traffic leaves directly (split tunneling).
+  // Program names whose traffic leaves directly (split tunneling).
   bypassApps?: string[];
 }
 
-export const tunInterfaceName = 'DT Client';
-
 // The engines' own sockets leave directly, or the tunnel would carry itself.
-const directProcesses = ['xray.exe', 'sing-box.exe'];
+function engineProcesses(os: Os): string[] {
+  return os === 'windows' ? ['xray.exe', 'sing-box.exe'] : ['xray', 'sing-box'];
+}
 
 export function singboxTunConfig(opts: TunOptions): Record<string, unknown> {
   return {
@@ -26,7 +31,7 @@ export function singboxTunConfig(opts: TunOptions): Record<string, unknown> {
       {
         type: 'tun',
         tag: 'tun-in',
-        interface_name: tunInterfaceName,
+        ...(opts.interfaceName ? { interface_name: opts.interfaceName } : {}),
         address: ['172.19.0.1/30', 'fdfe:dcba:9876::1/126'],
         mtu: 9000,
         auto_route: true,
@@ -42,7 +47,7 @@ export function singboxTunConfig(opts: TunOptions): Record<string, unknown> {
       rules: [
         { action: 'sniff' },
         { protocol: 'dns', action: 'hijack-dns' },
-        { process_name: [...directProcesses, ...(opts.bypassApps ?? [])], outbound: 'direct' },
+        { process_name: [...engineProcesses(opts.os), ...(opts.bypassApps ?? [])], outbound: 'direct' },
         { ip_is_private: true, outbound: 'direct' },
       ],
       final: 'proxy',

@@ -7,14 +7,19 @@ directories:
 files:
   - dist/**/*
   - '!dist/smoke.js'
+  - '!dist/helper/**'
+  - '!dist/bin/**'
   - package.json
+# The engines of the platform and architecture being built (scripts/fetch-binaries.mjs).
 extraResources:
-  - from: resources/bin
+  - from: resources/bin/${os}-${arch}
     to: bin
     filter: ['**/*', '!.gitkeep']
   - from: build/icon.png
     to: icon.png
 npmRebuild: false
+afterPack: scripts/after-pack.cjs
+
 win:
   target: nsis
   icon: build/icon.ico
@@ -29,3 +34,62 @@ nsis:
   shortcutName: DT Client
   uninstallDisplayName: DT Client
   include: build/installer.nsh
+
+# Linux: the app runs as the user; the engines run in a root systemd service (dt-client-helper).
+linux:
+  target:
+    - target: deb
+      arch: [x64, arm64]
+    - target: rpm
+      arch: [x64, arm64]
+    - target: pacman
+      arch: [x64, arm64]
+  executableName: dt-client
+  syncDesktopName: true
+  icon: build/icon.png
+  category: Network
+  synopsis: DataCraft Team VPN client
+  description: The VPN app of DataCraft Team. Sign in with the subscription link of your service and your username.
+  maintainer: DataCraft Team <FarzadSec@users.noreply.github.com>
+  vendor: DataCraft Team
+  artifactName: DT-Client-${version}-linux-${arch}.${ext}
+  extraResources:
+    - from: dist/helper
+      to: helper
+deb:
+  afterInstall: build/linux/after-install.sh
+  afterRemove: build/linux/after-remove.sh
+  depends: [libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, xdg-utils, libatspi2.0-0, libuuid1, libsecret-1-0, openvpn]
+  recommends: [libappindicator3-1, network-manager-l2tp]
+rpm:
+  afterInstall: build/linux/after-install.sh
+  afterRemove: build/linux/after-remove.sh
+  depends: [gtk3, libnotify, nss, libXScrnSaver, (libXtst or libXtst6), xdg-utils, at-spi2-core, (libuuid or libuuid1), openvpn]
+  fpm: ['--rpm-tag', 'Recommends: NetworkManager-l2tp']
+pacman:
+  afterInstall: build/linux/after-install.sh
+  afterRemove: build/linux/after-remove.sh
+  depends: [gtk3, nss, libnotify, libxss, libxtst, xdg-utils, at-spi2-core, util-linux-libs, libsecret, openvpn]
+  fpm: ['--pacman-optional-depends', 'networkmanager-l2tp: L2TP connections']
+
+# macOS: an installer package that also sets up the root LaunchDaemon (build/pkg-scripts).
+mac:
+  target:
+    - target: pkg
+      arch: [x64, arm64]
+  icon: build/icon.png
+  category: public.app-category.utilities
+  identity: null
+  artifactName: DT-Client-${version}-mac-${arch}.${ext}
+  minimumSystemVersion: '12.0'
+  extraResources:
+    - from: dist/helper
+      to: helper
+    - from: build/uninstall-macos.sh
+      to: uninstall.sh
+pkg:
+  installLocation: /Applications
+  isRelocatable: false
+  allowAnywhere: false
+  allowRootDirectory: false
+  overwriteAction: upgrade
