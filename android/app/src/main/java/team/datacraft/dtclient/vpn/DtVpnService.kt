@@ -9,16 +9,23 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import android.system.OsConstants
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import java.io.File
+import java.io.RandomAccessFile
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.concurrent.thread
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.ServerSocket
 import java.net.URL
+import team.datacraft.dtclient.data.AppLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,6 +74,7 @@ class DtVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_DISCONNECT) {
+            AppLog.i(TAG, "disconnecting")
             work?.cancel()
             work = scope.launch {
                 set(Status(ConnState.Disconnecting, VpnState.status.value.locationId))
@@ -89,6 +97,7 @@ class DtVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        AppLog.w(TAG, "Android took the VPN away (another VPN started, or the permission was revoked)")
         scope.launch {
             stopEngines()
             set(Status(ConnState.Disconnected, error = "connection_lost"))
@@ -144,11 +153,13 @@ class DtVpnService : VpnService() {
         conn.connectTimeout = 10_000
         conn.readTimeout = 10_000
         try {
-            conn.responseCode == 204
+            val code = conn.responseCode
+            if (code != 204) AppLog.w(TAG, "the test page answered $code")
+            code == 204
         } finally {
             conn.disconnect()
         }
-    }.getOrDefault(false)
+    }.onFailure { AppLog.w(TAG, "test page: $it") }.getOrDefault(false)
 
     private suspend fun connect(locationId: Int?) {
         stopEngines()
@@ -159,6 +170,7 @@ class DtVpnService : VpnService() {
             return
         }
         val list = Candidates.forLocation(profile, locationId, settings.protocol, Repo.pings.value)
+        AppLog.i(TAG, "connect to ${locationId?.let { "location $it" } ?: "the fastest location"}, protocol ${settings.protocol}: ${list.size} config(s) to try")
         if (list.isEmpty()) {
             set(Status(ConnState.Disconnected, locationId, error = "no_config"))
             return
@@ -166,10 +178,20 @@ class DtVpnService : VpnService() {
         set(Status(ConnState.Connecting, locationId))
         val dns = XrayConfig.dnsServers(settings.dns)
         Core.setAssetDir(assetDir())
-        for (config in list) {
+        for ((i, config) in list.withIndex()) {
             if (!scope.isActive) return
             set(Status(ConnState.Connecting, locationId, config.locationId, config.name, config.protocol))
-            val attempt = if (config.protocol == "openvpn") startOpenVpn(config, settings) else startXray(config, settings, dns)
+            AppLog.i(TAG, "(${i + 1}/${list.size}) trying ${config.protocol} \"${config.name}\" of location ${config.locationId ?: "-"}")
+            val started = System.currentTimeMillis()
+            val attempt = try {
+                if (config.protocol == "openvpn") startOpenVpn(config, settings) else startXray(config, settings, dns)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.e(TAG, "failed", e)
+                Attempt.Failed
+            }
+            AppLog.i(TAG, "${if (attempt == Attempt.Started) "connected" else "did not connect"} (${System.currentTimeMillis() - started} ms)")
             when (attempt) {
                 Attempt.Failed -> continue
                 Attempt.Denied -> {
@@ -184,22 +206,80 @@ class DtVpnService : VpnService() {
                 }
             }
         }
+        AppLog.i(TAG, "no config connected")
         set(Status(ConnState.Disconnected, locationId, error = "all_failed"))
     }
 
     private enum class Attempt { Started, Failed, Denied }
 
+    private val logDir: File get() = File(filesDir, "logs").apply { mkdirs() }
+    private val xrayLog: File get() = File(logDir, "xray.log")
+
+    // Xray's own log file goes into the app's log after each step; Xray keeps appending to it.
+    private fun drainXrayLog() {
+        runCatching {
+            val f = xrayLog
+            if (!f.exists()) return
+            val text = f.readText()
+            if (text.isNotBlank()) AppLog.write("xray", text)
+            RandomAccessFile(f, "rw").use { it.setLength(0) }
+        }
+    }
+
+    // The system's resolver, before the tunnel is up (and the app is outside it anyway): IPv4 when
+    // there is one, IPv6 otherwise. Xray then never asks its own tunnel where its server is.
+    private fun resolve(names: List<String>): Map<String, List<String>> {
+        val out = ConcurrentHashMap<String, List<String>>()
+        val workers = names.map { name ->
+            thread(isDaemon = true, name = "resolve") {
+                val all = runCatching { InetAddress.getAllByName(name).toList() }.getOrNull() ?: return@thread
+                val v4 = all.filterIsInstance<Inet4Address>().mapNotNull { it.hostAddress }
+                val v6 = all.filterIsInstance<Inet6Address>().mapNotNull { it.hostAddress?.substringBefore('%') }
+                val ips = (v4.ifEmpty { v6 }).distinct()
+                if (ips.isNotEmpty()) out[name] = ips
+            }
+        }
+        val deadline = System.currentTimeMillis() + 6_000
+        for (w in workers) w.join(maxOf(1L, deadline - System.currentTimeMillis()))
+        return HashMap(out)
+    }
+
     private fun startXray(config: Config, settings: Settings, dns: List<String>): Attempt {
-        val outbound = config.outbound ?: return Attempt.Failed
-        val port = freePort()
-        val json = XrayConfig.build(outbound, port, settings.iranDirect, settings.adBlock, dns)
-        if (runCatching { Core.start(json) }.isFailure) return Attempt.Failed
-        if (!probe(port)) {
-            runCatching { Core.stop() }
+        val outbound = XrayConfig.proxyOutboundFor(config.protocol, config.link, config.outbound)
+        if (outbound == null) {
+            AppLog.w(TAG, "${config.name}: no outbound to run")
             return Attempt.Failed
         }
+        val names = XrayConfig.serverNames(outbound)
+        val hosts = resolve(names)
+        for (name in names) AppLog.i(TAG, hosts[name]?.let { "$name is ${it.joinToString(", ")}" } ?: "$name did not resolve; Xray will try it itself")
+        val port = freePort()
+        runCatching { xrayLog.delete() }
+        fun run(level: String): Boolean {
+            val json = XrayConfig.build(outbound, port, settings.iranDirect, settings.adBlock, dns, hosts, level, xrayLog.absolutePath)
+            return runCatching { Core.start(json) }.onFailure { AppLog.w(TAG, "Xray refused the config: ${it.message}") }.isSuccess
+        }
+        // Tested with Xray's detailed log, which then shows only the test page's connection.
+        if (!run("info")) {
+            drainXrayLog()
+            return Attempt.Failed
+        }
+        val started = System.currentTimeMillis()
+        val answered = probe(port)
+        drainXrayLog()
+        if (!answered) {
+            AppLog.w(TAG, "no answer through this config (test page https://www.gstatic.com/generate_204, ${System.currentTimeMillis() - started} ms)")
+            runCatching { Core.stop() }
+            drainXrayLog()
+            return Attempt.Failed
+        }
+        AppLog.i(TAG, "the test page answered through it in ${System.currentTimeMillis() - started} ms")
+        // Run again with the short log before the user's traffic goes through it.
+        if (!run("warning")) return Attempt.Failed
+        drainXrayLog()
         val fd = establish(dns.first(), settings.splitApps)
         if (fd == null) {
+            AppLog.w(TAG, "Android did not give the VPN interface (permission revoked or another VPN is always-on)")
             runCatching { Core.stop() }
             return Attempt.Denied
         }
@@ -217,9 +297,13 @@ class DtVpnService : VpnService() {
               udp: 'udp'
             misc:
               task-stack-size: 81920
+              log-file: '${File(logDir, "tunnel.log").absolutePath}'
+              log-level: warn
             """.trimIndent(),
         )
+        runCatching { File(logDir, "tunnel.log").delete() }
         if (!TProxyService.TProxyStartService(hevConfig.absolutePath, fd.fd)) {
+            AppLog.w(TAG, "the packet tunnel (hev-socks5-tunnel) did not start")
             stopEngines()
             return Attempt.Failed
         }
@@ -230,11 +314,11 @@ class DtVpnService : VpnService() {
     private suspend fun startOpenVpn(config: Config, settings: Settings): Attempt {
         val profile = OpenVpnProfile.decode(config.link)
         if (profile == null) {
-            Log.w(TAG, "${config.name}: not an OpenVPN profile")
+            AppLog.w(TAG, "${config.name}: not an OpenVPN profile")
             return Attempt.Failed
         }
         OpenVpnProfile.unsafeDirective(profile)?.let {
-            Log.w(TAG, "${config.name}: the profile has '$it', which the app does not run")
+            AppLog.w(TAG, "${config.name}: the profile has '$it', which the app does not run")
             return Attempt.Failed
         }
         val session = OpenVpn(this, object : OpenVpn.Host {
@@ -247,6 +331,7 @@ class DtVpnService : VpnService() {
         session.onLost = {
             scope.launch {
                 if (openvpn === session) {
+                    AppLog.w(TAG, "the OpenVPN connection ended")
                     val locationId = VpnState.status.value.locationId
                     stopEngines()
                     set(Status(ConnState.Disconnected, locationId, error = "connection_lost"))
@@ -256,7 +341,7 @@ class DtVpnService : VpnService() {
         }
         openvpn = session
         val outcome = session.start(profile, OPENVPN_TIMEOUT_MS)
-        Log.i(TAG, "${config.name}: OpenVPN $outcome")
+        AppLog.i(TAG, "${config.name}: OpenVPN $outcome")
         return when (outcome) {
             OpenVpn.Outcome.Connected -> Attempt.Started
             OpenVpn.Outcome.VpnDenied -> {
@@ -326,7 +411,7 @@ class DtVpnService : VpnService() {
 
     @SuppressLint("MissingPermission")
     private fun notify(id: Int, level: String, body: String) {
-        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(NOTICE_CHANNEL) == null) {
             manager.createNotificationChannel(NotificationChannel(NOTICE_CHANNEL, if (Repo.settings.value.language == "fa") "اعلان‌ها" else "Notices", NotificationManager.IMPORTANCE_HIGH))
         }

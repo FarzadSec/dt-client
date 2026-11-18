@@ -1,13 +1,13 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 
 import type { AppProfile, ProtocolChoice, Settings, SplitApp } from '../../shared/types';
 import { Row, Select, Switch } from '../components/Controls';
-import { EyeOffIcon, InfoIcon, LockIcon, PlusIcon, SlidersIcon, SplitIcon, TrashIcon, UserIcon, WifiIcon } from '../components/Icons';
+import { EyeOffIcon, InfoIcon, LifebuoyIcon, LockIcon, PlusIcon, SlidersIcon, SplitIcon, TrashIcon, UserIcon, WifiIcon } from '../components/Icons';
 import { bytes, daysLeft } from '../format';
-import type { Translate } from '../i18n';
+import { errorText, type Translate } from '../i18n';
 import logo from '../logo.svg';
 
-export type Section = 'general' | 'account' | 'connection' | 'killswitch' | 'split' | 'privacy' | 'about';
+export type Section = 'general' | 'account' | 'connection' | 'killswitch' | 'split' | 'privacy' | 'support' | 'about';
 
 interface Props {
   t: Translate;
@@ -33,6 +33,7 @@ export function SettingsPage(props: Props) {
     ['killswitch', LockIcon, t('killSwitch')],
     ['split', SplitIcon, t('splitTunneling')],
     ['privacy', EyeOffIcon, t('privacy')],
+    ['support', LifebuoyIcon, t('supportSection')],
     ['about', InfoIcon, t('about')],
   ];
   const title = nav.find(([key]) => key === section)?.[2] ?? '';
@@ -54,6 +55,7 @@ export function SettingsPage(props: Props) {
         {section === 'killswitch' && <KillSwitch {...props} />}
         {section === 'split' && <Split {...props} />}
         {section === 'privacy' && <Privacy {...props} />}
+        {section === 'support' && <Support {...props} />}
         {section === 'about' && <About {...props} />}
       </div>
     </div>
@@ -246,6 +248,81 @@ function Privacy({ t, settings, onChange }: Props) {
         <Switch label={t('timezone')} checked={settings.timezoneSpoof} onChange={(timezoneSpoof) => onChange({ timezoneSpoof })} />
       </Row>
     </Group>
+  );
+}
+
+type Sending = { state: 'idle' } | { state: 'sending' } | { state: 'sent'; id: string | null } | { state: 'failed'; code: string };
+
+// A report sends the log since the app started to the panel, which files it under this account.
+function Support({ t, profile }: Props) {
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState<Sending>({ state: 'idle' });
+  const [log, setLog] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const view = useRef<HTMLPreElement | null>(null);
+
+  const loadLog = async () => setLog(await window.dt.logText());
+  useEffect(() => {
+    if (view.current) view.current.scrollTop = view.current.scrollHeight;
+  }, [log]);
+
+  const send = async () => {
+    setSending({ state: 'sending' });
+    try {
+      setSending({ state: 'sent', ...(await window.dt.sendReport(message.trim())) });
+      setMessage('');
+    } catch (err) {
+      setSending({ state: 'failed', code: err instanceof Error ? err.message : 'unexpected' });
+    }
+  };
+  const copy = async () => {
+    await navigator.clipboard.writeText(await window.dt.logText());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <>
+      <h3 className="group-title">{t('reportProblem')}</h3>
+      <Group>
+        <p className="muted report-hint">{t('reportHint')}</p>
+        <textarea className="text-input report-text" rows={4} maxLength={4000} value={message} placeholder={t('reportPlaceholder')} onChange={(e) => setMessage(e.target.value)} />
+        <div className="button-row">
+          <button type="button" className="btn btn-primary" disabled={sending.state === 'sending'} onClick={() => void send()}>
+            {sending.state === 'sending' ? t('reportSending') : t('reportSend')}
+          </button>
+        </div>
+        {sending.state === 'sent' && <div className="banner info report-result ok">{sending.id ? t('reportSentId', { id: sending.id }) : t('reportSent')}</div>}
+        {sending.state === 'failed' && (
+          <div className="banner error report-result">{sending.code === 'report_unsupported' ? t('reportUnsupported') : errorText(t, sending.code)}</div>
+        )}
+      </Group>
+      <h3 className="group-title">{t('appLog')}</h3>
+      <Group>
+        <p className="muted report-hint">{t('appLogHint')}</p>
+        <div className="button-row">
+          <button type="button" className="btn btn-secondary" onClick={() => void loadLog()}>
+            {log === null ? t('showLog') : t('refreshLog')}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => void copy()}>
+            {copied ? t('copied') : t('copyLog')}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => void window.dt.saveLog()}>
+            {t('saveLog')}
+          </button>
+          {profile.supportUrl && (
+            <button type="button" className="btn btn-secondary" onClick={() => void window.dt.openExternal(profile.supportUrl ?? '')}>
+              {t('support')}
+            </button>
+          )}
+        </div>
+        {log !== null && (
+          <pre ref={view} className="log-view" dir="ltr">
+            {log}
+          </pre>
+        )}
+      </Group>
+    </>
   );
 }
 

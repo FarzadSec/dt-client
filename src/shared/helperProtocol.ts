@@ -10,7 +10,7 @@ export const helperSocket: Record<Exclude<Os, 'windows'>, string> = {
 
 export const helperProtocolVersion = 1;
 
-export type HelperMethod = 'hello' | 'status' | 'connect' | 'disconnect';
+export type HelperMethod = 'hello' | 'status' | 'connect' | 'disconnect' | 'logs';
 
 export interface HelperRequest {
   id: number;

@@ -1,3 +1,11 @@
+**DT Connect 1.1.0**
+
+- **Report a problem**: every app keeps a log since it started (each connection attempt and why it failed, the VPN engines' messages), with passwords, keys and links taken out. Settings → Support on the desktop and Account → Report a problem on Android show it, copy it, save or share it, and send it with a message to support, who see it under the user's account (on panels that take reports).
+- **WireGuard** connects again on every system: the app builds it from the config's link, since the panel's version of it could carry a broken key.
+- **OpenVPN on Windows** connects: the app now ships the TAP-Windows6 and ovpn-dco drivers and adds its own adapters the first time OpenVPN is used (uninstalling removes them).
+- **Android** runs the same Xray release as the desktop app (it had been left on March's), and every system looks a server's name up before connecting, so a config with a server name no longer waits on itself.
+- VLESS and Trojan without TLS (often to a relay in the country), which current Xray refuses, connect.
+
 **DT Connect 1.0.1**
 
 - Windows: the L2TP connection is now set up by a script that ships with the app, instead of an encoded PowerShell command, a pattern that security software treats as suspicious. Nothing else changes.

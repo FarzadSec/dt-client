@@ -176,4 +176,11 @@ export interface DtApi {
   // A dtconnect:// sign-in link the app was opened with, taken once.
   takeSignIn(): Promise<SignInCode | null>;
   onSignInLink(listener: () => void): () => void;
+  // The app's log since it started (the engines' too), redacted, for the support page.
+  logText(): Promise<string>;
+  // Sends the log with the user's message to the panel; the answer is the report's number when it gives one.
+  sendReport(message: string): Promise<{ id: string | null }>;
+  saveLog(): Promise<boolean>;
+  // A line from the window for the log (an error it caught).
+  log(text: string): void;
 }

@@ -1,6 +1,7 @@
 // Downloads the engines DT Connect runs into resources/bin/<os>-<arch> (CI):
 //   node scripts/fetch-binaries.mjs win x64 | linux x64 | linux arm64 | mac x64 | mac arm64
-// Xray and sing-box everywhere; on Windows also OpenVPN 2.6 and wintun (run there: it unpacks an MSI).
+// Xray and sing-box everywhere; on Windows also OpenVPN 2.6 with tapctl (run there: it unpacks an MSI)
+// and the TAP-Windows6 and ovpn-dco drivers its adapters need.
 // Linux and macOS use the system's OpenVPN. Xray's archives are checked against its published digests.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -108,7 +109,7 @@ if (target !== 'win') {
 }
 fs.mkdirSync(path.join(bin, 'openvpn'), { recursive: true });
 
-// 2.6 is the last line that drives wintun, which needs no driver installed; 2.7 dropped it.
+// OpenVPN 2.6, the line the app has been tested with on Windows (with the drivers below).
 // Its Windows builds are tags of openvpn-build; a tag can precede its published MSI.
 const ovpnTags = execFileSync('git', ['ls-remote', '--tags', 'https://github.com/OpenVPN/openvpn-build'], { encoding: 'utf8' })
   .split('\n')
@@ -143,9 +144,27 @@ for (const f of fs.readdirSync(path.dirname(ovpnExe))) {
 }
 versions.push(`openvpn ${ovpn.tag_name}`);
 
-const wintunDir = unzip(await download('https://www.wintun.net/builds/wintun-0.14.1.zip', path.join(tmp, 'wintun.zip')), path.join(tmp, 'wintun'));
-fs.copyFileSync(path.join(wintunDir, 'wintun', 'bin', 'amd64', 'wintun.dll'), path.join(bin, 'openvpn', 'wintun.dll'));
-versions.push('wintun 0.14.1');
+if (!fs.existsSync(path.join(bin, 'openvpn', 'tapctl.exe'))) throw new Error('tapctl.exe not found in the MSI');
+
+// OpenVPN opens only an adapter that exists; the app adds one with tapctl from these drivers
+// (src/main/system/openvpnAdapters.ts). Both are signed by Microsoft; the archives are pinned.
+async function pinned(url, sha256, file) {
+  await download(url, file);
+  const got = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  if (got !== sha256) throw new Error(`${url}: digest ${got}, expected ${sha256}`);
+  return file;
+}
+const drivers = path.join(bin, 'openvpn', 'drivers');
+const tapDir = unzip(await pinned('https://github.com/OpenVPN/tap-windows6/releases/download/9.27.0/dist.win10.zip', '36e2609b7ceefedcb978ce5c48caf9e0e5af83423717c4e2e3c1d7ebca8f62a5', path.join(tmp, 'tap.zip')), path.join(tmp, 'tap'));
+fs.mkdirSync(path.join(drivers, 'tap'), { recursive: true });
+for (const f of ['OemVista.inf', 'tap0901.sys', 'tap0901.cat']) fs.copyFileSync(path.join(tapDir, 'dist.win10', 'amd64', f), path.join(drivers, 'tap', f));
+versions.push('tap-windows6 9.27.0');
+const dcoDir = unzip(await pinned('https://github.com/OpenVPN/ovpn-dco-win/releases/download/2.8.7/ovpn-dco-win-2.8.7-amd64.zip', '6ee142c11b5e98a2411751b6327dde811ffdd468d34727ce513e7321f8e96495', path.join(tmp, 'dco.zip')), path.join(tmp, 'dco'));
+for (const variant of ['win10', 'win11']) {
+  fs.mkdirSync(path.join(drivers, `dco-${variant}`), { recursive: true });
+  for (const f of ['ovpn-dco.inf', 'ovpn-dco.sys', 'ovpn-dco.cat']) fs.copyFileSync(path.join(dcoDir, variant, f), path.join(drivers, `dco-${variant}`, f));
+}
+versions.push('ovpn-dco-win 2.8.7');
 
 fs.writeFileSync(path.join(bin, 'VERSIONS.txt'), versions.join('\n') + '\n');
 console.log(versions.join('\n'));

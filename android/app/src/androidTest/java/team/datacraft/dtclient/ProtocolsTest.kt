@@ -21,7 +21,9 @@ import team.datacraft.dtclient.vpn.VpnState
 
 // Every protocol the app runs through Xray, end to end on a real Android: sign in to the test panel
 // (android/test/mock-panel.mjs), then connect to each location, whose one config points at CI's server
-// for that protocol (android/test/protocol-servers.sh). Connected means a page came back through it.
+// for that protocol (android/test/protocol-servers.sh), in the shapes Manifold hands them over: VLESS
+// with its server in settings, WireGuard whose outbound lost its key's '+', VLESS without TLS to a
+// public name. Connected means a page came back through it. Then a support report reaches the panel.
 @RunWith(AndroidJUnit4::class)
 class ProtocolsTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -53,8 +55,9 @@ class ProtocolsTest {
 
         val failures = mutableListOf<String>()
         ActivityScenario.launch(MainActivity::class.java).use {
-            for (protocol in listOf("vless", "vmess", "trojan", "shadowsocks", "wireguard")) {
-                val config = profile.configs.first { it.protocol == protocol }
+            for ((locationId, protocol) in listOf(1 to "vless", 2 to "vmess", 3 to "trojan", 4 to "shadowsocks", 5 to "wireguard", 8 to "vless")) {
+                val config = profile.configs.first { it.locationId == locationId }
+                assertEquals(protocol, config.protocol)
                 VpnState.status.value = Status()
                 DtVpnService.connect(context, config.locationId)
                 val trail = mutableListOf<String>()
@@ -65,16 +68,24 @@ class ProtocolsTest {
                     s.state == ConnState.Connected || (s.state == ConnState.Disconnected && s.error.isNotEmpty())
                 }
                 val status = VpnState.status.value
-                if (status.state != ConnState.Connected || status.protocol != protocol) failures += "$protocol: $trail"
+                if (status.state != ConnState.Connected || status.protocol != protocol) failures += "$protocol (location $locationId): $trail"
                 DtVpnService.disconnect(context)
                 assertTrue("$protocol: disconnect", waitFor(15_000) { VpnState.status.value.state == ConnState.Disconnected })
                 Thread.sleep(1000)
             }
         }
         if (failures.isNotEmpty()) {
-            val log = shell("logcat -d -v brief --pid=${android.os.Process.myPid()}").lines().filter { "Xray" in it || "DtVpn" in it || "GoLog" in it }.takeLast(60).joinToString(" | ")
+            val log = team.datacraft.dtclient.data.AppLog.text().lines().takeLast(120).joinToString(" | ")
             throw AssertionError("${failures.joinToString(" ; ")} | $log")
         }
         assertEquals(emptyList<String>(), failures)
+
+        // The log of all that goes to the panel as a report, and the panel files it.
+        val (id, error) = runBlocking { Repo.sendReport("CI report") }
+        assertNull("report error", error)
+        assertTrue("report number", !id.isNullOrEmpty())
+        val text = Repo.logText()
+        assertTrue("the log has the connection steps", "trying wireguard" in text && "the test page answered" in text)
+        assertTrue("no session token in the log", "test-session-token" !in text)
     }
 }

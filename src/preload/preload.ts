@@ -47,6 +47,10 @@ const api: DtApi = {
     ipcRenderer.on('signInLink', wrapped);
     return () => ipcRenderer.off('signInLink', wrapped);
   },
+  logText: () => invoke('logText'),
+  sendReport: (message) => invoke('sendReport', message),
+  saveLog: () => invoke('saveLog'),
+  log: (text) => ipcRenderer.send('log', String(text).slice(0, 4000)),
 };
 
 contextBridge.exposeInMainWorld('dt', api);

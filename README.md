@@ -34,14 +34,14 @@ Each package installs the app and its helper service and removes both when unins
 
 ### Linux and macOS: the helper
 
-A VPN needs administrator rights for the tunnel, routes, DNS and timezone, while the app's window should run as the user. So on Linux and macOS the engines run in a small root helper, the same program started without its window: a systemd service (`dt-connect-helper`) on Linux and a LaunchDaemon (`team.datacraft.dtclient.helper`) on macOS. The app talks to it over a local socket (`/run/dt-connect/helper.sock`, `/var/run/dt-connect.sock`) with four requests: who are you, status, connect, disconnect. The helper checks what it is given, since anyone on the computer can reach the socket: OpenVPN profiles that would run programs, read files or open a control port are refused, Xray outbounds lose any file they would read, and DNS, timezone and program names must be plain values.
+A VPN needs administrator rights for the tunnel, routes, DNS and timezone, while the app's window should run as the user. So on Linux and macOS the engines run in a small root helper, the same program started without its window: a systemd service (`dt-connect-helper`) on Linux and a LaunchDaemon (`team.datacraft.dtclient.helper`) on macOS. The app talks to it over a local socket (`/run/dt-connect/helper.sock`, `/var/run/dt-connect.sock`) with five requests: who are you, status, connect, disconnect and its log. The helper checks what it is given, since anyone on the computer can reach the socket: OpenVPN profiles that would run programs, read files or open a control port are refused, Xray outbounds lose any file they would read, and DNS, timezone and program names must be plain values.
 
 What differs by system:
 
 | | Windows | Linux | macOS | Android |
 | --- | --- | --- | --- | --- |
 | Xray protocols and WireGuard | ✓ | ✓ | ✓ | ✓ |
-| OpenVPN | bundled (2.6, wintun) | the system's `openvpn` package (installed with the app) | Homebrew's: `brew install openvpn` | bundled (2.7, built from source, see `android/README.md`) |
+| OpenVPN | bundled (2.6, on the TAP-Windows6 and ovpn-dco adapters the app adds) | the system's `openvpn` package (installed with the app) | Homebrew's: `brew install openvpn` | bundled (2.7, built from source, see `android/README.md`) |
 | L2TP/IPsec | Windows' own client | NetworkManager with its L2TP plugin (`network-manager-l2tp`, `NetworkManager-l2tp` or `networkmanager-l2tp`, recommended by the package) | not offered: macOS sets up L2TP only from a profile the user installs by hand | not offered: apps cannot drive Android's own client, and Android 12 removed it |
 | Kill switch, split tunneling, Iranian sites direct | ✓ | ✓ | ✓ | Android's own kill switch, apps without VPN; Iranian sites direct on Xray and WireGuard |
 | WebRTC leak protection | Chrome, Edge, Brave policy | the same policy as a file in `/etc/…/policies/managed` | not offered | not offered |
@@ -70,8 +70,8 @@ Engines, all started by the app (which runs as administrator):
 
 | Protocols | Engine |
 | --- | --- |
-| VLESS, VMess, Trojan, Shadowsocks, Hysteria 2, WireGuard | `xray.exe` with the outbound from the panel, behind `sing-box.exe` as the system-wide TUN (wintun). The engines' own traffic leaves directly; DNS goes through the tunnel. |
-| OpenVPN | `openvpn.exe` 2.6 with the panel's profile, on wintun, stopped through its management port. |
+| VLESS, VMess, Trojan, Shadowsocks, Hysteria 2, WireGuard | `xray.exe` with the outbound from the panel (WireGuard's built from its link), behind `sing-box.exe` as the system-wide TUN (wintun). The engines' own traffic leaves directly; DNS goes through the tunnel. The server's name is looked up before connecting and handed to Xray, so Xray never asks its own tunnel where its server is. |
+| OpenVPN | `openvpn.exe` 2.6 with the panel's profile, stopped through its management port. OpenVPN only opens an adapter that already exists, so the first time it is used the app adds the TAP-Windows6 and ovpn-dco drivers it ships (both signed by Microsoft) with `pnputil` and an adapter of each with `tapctl` (*DT Connect TAP*, *DT Connect DCO*); OpenVPN takes ovpn-dco (Windows 10 2004 and later) when the profile allows it and TAP otherwise, and the app tries TAP again if ovpn-dco fails. Uninstalling removes both adapters. |
 | L2TP/IPsec | Windows' own client: a VPN connection added with `Add-VpnConnection` and dialled with `rasdial`. |
 
 **Automatic** tries the Xray protocols of the chosen location first, then WireGuard, OpenVPN and L2TP, and keeps the first that answers (an Xray config must fetch `https://www.gstatic.com/generate_204` through itself).
@@ -92,6 +92,12 @@ Settings:
 
 The session token and the profile are stored sealed with Electron's `safeStorage` (DPAPI).
 
+## Logs and support reports
+
+Every app keeps a log from the moment it starts: each connection attempt (which config, the server's address, how long it took and why it failed), the engines' messages (Xray in detail while a config is tested, then only its warnings, so the sites a user opens stay out; sing-box, OpenVPN, rasdial or NetworkManager for L2TP; on Linux and macOS the helper's log), profile refreshes and errors, and the end of the previous run's log in case it crashed. Links, ids, keys, passwords and tokens are taken out as each line is written; the username stays, so support knows whose it is.
+
+**Settings → Support** (desktop) and **Account → Report a problem** (Android) show it, copy it, save it to a file (desktop) or share it (Android), and **Send log to support** posts it with the user's message to the panel: `POST <subscription link>/app/v1/report` with the session's `Authorization: Bearer` and `X-HWID`, a gzipped JSON body (`Content-Encoding: gzip`) of `message`, `log`, `deviceId`, `deviceName`, `os`, `osVersion` and `appVersion`, answered `{"id": <report number>}`. The panel knows the account from the session and files the report under its username and numeric id. A panel without the endpoint answers 404, and the app says so and offers the other ways. A failed connection's banner on the home page links to it.
+
 ## Development
 
 Node 22. The app is Electron with a React window; the main process is bundled with esbuild, the window with Vite.
@@ -103,7 +109,7 @@ npm run typecheck
 npm run build     # dist/
 ```
 
-`node scripts/fetch-binaries.mjs <win|linux|mac> <x64|arm64>` downloads the engines into `resources/bin/<os>-<arch>`: the latest Xray (checked against its published SHA-256) and sing-box from their GitHub releases, and on Windows OpenVPN 2.6 (the last line that drives wintun) from its MSI, and wintun. `npm run dist:win`, `dist:linux` and `dist:mac` build the installers into `release/`. The helper is `src/helper/helper.ts`, bundled to `dist/helper/helper.js`.
+`node scripts/fetch-binaries.mjs <win|linux|mac> <x64|arm64>` downloads the engines into `resources/bin/<os>-<arch>`: the latest Xray (checked against its published SHA-256) and sing-box from their GitHub releases, and on Windows OpenVPN 2.6 with `tapctl` from its MSI and the TAP-Windows6 9.27 and ovpn-dco-win 2.8.7 drivers (pinned by SHA-256). `npm run dist:win`, `dist:linux` and `dist:mac` build the installers into `release/`. The helper is `src/helper/helper.ts`, bundled to `dist/helper/helper.js`.
 
 CI (`.github/workflows/build.yml`) runs the tests, then for each system fetches the engines, checks the configurations the app writes with the real `xray run -test` and `sing-box check`, and builds the installers. On Linux it installs the deb on the runner, checks the helper service answers on its socket and removes the package, and installs the deb, rpm and pacman packages in Debian, Ubuntu, Fedora and Arch containers to check every dependency resolves. macOS (Intel and Apple silicon from one runner) builds for a release and when the workflow is started by hand with **macOS** ticked; it installs the Apple silicon package, checks the signature, that the helper answers, and uninstalls. A push to `main` whose `package.json` version has no release yet (or a `v*` tag, or a release made on GitHub's Releases page) publishes every installer with `SHA256SUMS.txt` as that version's release; macOS is built for it too.
 

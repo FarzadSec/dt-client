@@ -8,7 +8,6 @@ import android.net.Network
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.system.Os
-import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileDescriptor
@@ -16,6 +15,7 @@ import java.io.IOException
 import java.net.InetAddress
 import java.util.ArrayDeque
 import kotlin.concurrent.thread
+import team.datacraft.dtclient.data.AppLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -101,7 +101,7 @@ class OpenVpn(private val context: Context, private val host: Host) {
     suspend fun start(profile: String, timeoutMs: Long): Outcome = withContext(Dispatchers.IO) {
         val exe = binary(context)
         if (!exe.exists()) {
-            Log.w(TAG, "$exe is missing")
+            AppLog.w(TAG, "$exe is missing")
             return@withContext Outcome.Failed
         }
         dir.mkdirs()
@@ -117,13 +117,13 @@ class OpenVpn(private val context: Context, private val host: Host) {
             ProcessBuilder(exe.absolutePath, "--config", conf.absolutePath, "--tmp-dir", context.cacheDir.absolutePath)
                 .directory(dir).redirectErrorStream(true).start()
         } catch (e: IOException) {
-            Log.w(TAG, "cannot start OpenVPN: $e")
+            AppLog.w(TAG, "cannot start OpenVPN: $e")
             conf.delete()
             return@withContext Outcome.Failed
         }
         process = proc
         thread(name = "openvpn-log", isDaemon = true) {
-            runCatching { proc.inputStream.bufferedReader().forEachLine { Log.i(TAG, it) } }
+            runCatching { proc.inputStream.bufferedReader().forEachLine { AppLog.i(TAG, it) } }
         }
         val sock = connectManagement(mgmt, proc)
         // OpenVPN has read the whole profile before it opens its management socket.
@@ -182,7 +182,7 @@ class OpenVpn(private val context: Context, private val host: Host) {
             }
             Thread.sleep(100)
         }
-        Log.w(TAG, "no management socket")
+        AppLog.w(TAG, "no management socket")
         return null
     }
 
@@ -193,7 +193,7 @@ class OpenVpn(private val context: Context, private val host: Host) {
                 sock.outputStream.write(lines.joinToString("") { "$it\n" }.toByteArray())
                 sock.outputStream.flush()
             } catch (e: IOException) {
-                if (!stopping) Log.w(TAG, "management write: $e")
+                if (!stopping) AppLog.w(TAG, "management write: $e")
             }
         }
     }
@@ -207,7 +207,7 @@ class OpenVpn(private val context: Context, private val host: Host) {
                 sock.outputStream.write("$line\n".toByteArray())
                 sock.outputStream.flush()
             } catch (e: IOException) {
-                Log.w(TAG, "management write: $e")
+                AppLog.w(TAG, "management write: $e")
             } finally {
                 sock.setFileDescriptorsForSend(null)
             }
@@ -240,7 +240,7 @@ class OpenVpn(private val context: Context, private val host: Host) {
                 }
             }
         } catch (e: IOException) {
-            if (!stopping) Log.w(TAG, "management read: $e")
+            if (!stopping) AppLog.w(TAG, "management read: $e")
         }
         val wasConnected = connected
         fail(Outcome.Failed)
@@ -254,7 +254,7 @@ class OpenVpn(private val context: Context, private val host: Host) {
                 val user = username
                 val pass = password
                 if (user == null || pass == null) {
-                    Log.w(TAG, "the profile carries no login")
+                    AppLog.w(TAG, "the profile carries no login")
                     fail(Outcome.AuthFailed)
                     send("signal SIGTERM")
                 } else {
@@ -262,19 +262,19 @@ class OpenVpn(private val context: Context, private val host: Host) {
                 }
             }
             line.startsWith(">PASSWORD:Verification Failed") -> {
-                Log.w(TAG, line)
+                AppLog.w(TAG, line)
                 fail(Outcome.AuthFailed)
             }
             line.startsWith(">PASSWORD:Auth-Token") -> Unit
             line.startsWith(">PASSWORD:") -> {
                 // A key passphrase or a challenge: nothing the app can answer.
-                Log.w(TAG, line)
+                AppLog.w(TAG, line)
                 fail(Outcome.Failed)
                 send("signal SIGTERM")
             }
             line.startsWith(">NEED-OK:") -> needOk(line)
             line.startsWith(">STATE:") -> state(line)
-            line.startsWith(">FATAL:") -> Log.w(TAG, line)
+            line.startsWith(">FATAL:") -> AppLog.w(TAG, line)
         }
     }
 
@@ -302,9 +302,9 @@ class OpenVpn(private val context: Context, private val host: Host) {
                 val fd = synchronized(received) { received.poll() }
                 if (fd != null) {
                     try {
-                        ParcelFileDescriptor.dup(fd).use { if (!host.protect(it.fd)) Log.w(TAG, "protect failed") }
+                        ParcelFileDescriptor.dup(fd).use { if (!host.protect(it.fd)) AppLog.w(TAG, "protect failed") }
                     } catch (e: IOException) {
-                        Log.w(TAG, "protect: $e")
+                        AppLog.w(TAG, "protect: $e")
                     }
                     runCatching { Os.close(fd) }
                 }
@@ -395,7 +395,7 @@ class OpenVpn(private val context: Context, private val host: Host) {
         val tun = try {
             host.openTun(spec)
         } catch (e: Exception) {
-            Log.w(TAG, "establish: $e")
+            AppLog.w(TAG, "establish: $e")
             null
         }
         if (tun == null) {

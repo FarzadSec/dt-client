@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -7,6 +8,7 @@ import { addSpan, pushRecent } from '../shared/activity';
 import { engineOf, useOs } from '../shared/engines';
 import { helperSocket } from '../shared/helperProtocol';
 import { osOf } from '../shared/platform';
+import { linkSecrets, redact } from '../shared/redact';
 import { parseSignIn, signInScheme, type SignInCode } from '../shared/signin';
 import type { AppProfile, PingResult, ProfileUpdate, Settings, SplitApp, Status } from '../shared/types';
 import { ApiError, AppApi } from './api';
@@ -14,6 +16,7 @@ import { answersOnUdp, serverAddress } from './candidates';
 import { tcpPing } from './health';
 import { appApiBase, LinkError } from './link';
 import { windowsKit } from './os/windows';
+import { SessionLog, tail } from './log';
 import { icmpPing } from './ping';
 import { RemoteVpn } from './remoteVpn';
 import { Store } from './store';
@@ -50,6 +53,13 @@ app.on('open-url', (event, url) => {
 const system = osOf(process.platform);
 useOs(system);
 const userAgent = `DTConnect/${app.getVersion()} (${system})`;
+// Since the app started: the app's own steps, the engines' output (Windows runs them here; Linux and
+// macOS add the helper's log to a report) and the window's errors.
+const sessionLog = new SessionLog();
+const log = sessionLog.write;
+log('app', `DT Connect ${app.getVersion()} on ${system} ${os.release()} (${process.arch}), Electron ${process.versions.electron}`);
+process.on('uncaughtException', (err) => log('app', `uncaught: ${err.stack ?? String(err)}`));
+process.on('unhandledRejection', (err) => log('app', `unhandled rejection: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`));
 const binDir = app.isPackaged ? path.join(process.resourcesPath, 'bin') : path.join(app.getAppPath(), 'resources', 'bin');
 const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(app.getAppPath(), 'build', 'icon.png');
 const trayDir = app.isPackaged ? path.join(process.resourcesPath, 'tray') : path.join(app.getAppPath(), 'build', 'tray');
@@ -87,7 +97,9 @@ function handle<A extends unknown[], T>(channel: string, fn: (...args: A) => Pro
     try {
       return { ok: true, value: await fn(...(args as A)) };
     } catch (err) {
-      return { ok: false, code: codeOf(err) };
+      const code = codeOf(err);
+      log('app', `${channel}: ${code}${code === 'unexpected' ? ` (${err instanceof Error ? (err.stack ?? err.message) : String(err)})` : ''}`);
+      return { ok: false, code };
     }
   });
 }
@@ -98,11 +110,21 @@ async function device() {
   return { deviceId: id, deviceName: deviceName(), os: system, osVersion: os.release(), appVersion: app.getVersion() };
 }
 
+function profileSummary(profile: AppProfile): string {
+  const counts = new Map<string, number>();
+  for (const c of profile.configs) counts.set(c.protocol, (counts.get(c.protocol) ?? 0) + 1);
+  return `${profile.locations.length} location(s), ${profile.configs.length} config(s): ${[...counts].map(([p, n]) => `${p} ${n}`).join(', ') || 'none'}`;
+}
+
 async function login(subLink: string, username: string): Promise<AppProfile> {
+  sessionLog.secret(...linkSecrets(subLink));
+  log('app', `signing in as ${username.trim()} on ${new URL(appApiBase(subLink)).host}`);
   const api = new AppApi(appApiBase(subLink), userAgent);
   const info = await device();
   const token = await api.login(username.trim(), info);
+  sessionLog.secret(token);
   const profile = await api.profile(token, info.deviceId);
+  log('app', `signed in: ${profileSummary(profile)}`);
   store.saveSession(subLink.trim(), username.trim(), token);
   store.saveProfile(profile);
   profileCache = profile;
@@ -119,10 +141,12 @@ async function fetchProfile(): Promise<ProfileUpdate | null> {
   try {
     profileCache = await new AppApi(appApiBase(session.subLink), userAgent).profile(session.token, info.deviceId);
     store.saveProfile(profileCache);
+    if (Date.now() - fetchedAt > 60_000) log('app', `profile: ${profileSummary(profileCache)}`);
     fetchedAt = Date.now();
     noticesKnownUpTo = Math.max(noticesKnownUpTo, ...(profileCache.notices ?? []).map((n) => n.id));
     return { profile: profileCache, fetchedAt };
   } catch (err) {
+    log('app', `profile refresh failed: ${codeOf(err)}`);
     if (err instanceof ApiError && sessionEndingCodes.includes(err.code)) {
       store.clearSession();
       profileCache = null;
@@ -199,7 +223,70 @@ async function connect(locationId: number | null): Promise<Status> {
   if (!profile) return vpn.status();
   store.saveSettings({ locationId });
   const latency = locationId === null ? new Map((await ping()).map((p) => [p.link, p.ms])) : undefined;
+  if (latency) log('app', `ping before choosing the fastest: ${[...latency.values()].filter((ms) => ms !== null).length}/${latency.size} servers answered`);
   return vpn.connect(profile, store.settings(), locationId, latency);
+}
+
+// What support needs to read a log: the app, the system, the settings, the account's configs and the state.
+function reportHeader(): string {
+  const s = store.settings();
+  const session = store.session();
+  const profile = profileCache ?? store.profile();
+  let engines = '';
+  try {
+    engines = fs.readFileSync(path.join(binDir, 'VERSIONS.txt'), 'utf8').trim().replace(/\r?\n/g, ', ');
+  } catch {
+    engines = system === 'windows' ? 'VERSIONS.txt missing' : 'in the helper';
+  }
+  const st = vpn.status();
+  const lines = [
+    `DT Connect ${app.getVersion()} · ${system} ${os.release()} ${process.arch} · Electron ${process.versions.electron}`,
+    `Engines: ${engines}`,
+    `Account: ${profile?.account.username ?? session?.username ?? '-'} · device ${deviceName()} · panel ${session ? new URL(appApiBase(session.subLink)).host : '-'}`,
+    `Status: ${st.state}${st.protocol ? ` ${st.protocol}` : ''}${st.configName ? ` "${st.configName}"` : ''}${st.error ? ` error ${st.error}` : ''}${st.notice ? ` notice ${st.notice}` : ''}`,
+    `Settings: protocol ${s.protocol}, kill switch ${s.killSwitch}, reconnect ${s.autoReconnect}, Iran direct ${s.iranDirect}, ad block ${s.adBlock}, DNS ${s.dns || 'default'}, split ${s.splitTunneling ? s.splitApps.length : 'off'}, WebRTC ${s.webrtcProtection}, timezone ${s.timezoneSpoof}, language ${s.language}`,
+    `Profile: ${profile ? profileSummary(profile) : '-'}${fetchedAt ? ` · fetched ${new Date(fetchedAt).toISOString()}` : ''}`,
+  ];
+  for (const c of profile?.configs ?? []) {
+    const target = serverAddress(c);
+    lines.push(`  ${c.protocol.padEnd(11)} location ${String(c.locationId ?? '-').padEnd(4)} ${target ? `${target.host}:${target.port}` : '?'} "${c.name}"${engineOf(c) ? '' : ' (not run on this system)'}`);
+  }
+  return lines.join('\n');
+}
+
+async function logText(): Promise<string> {
+  const helper = vpn instanceof RemoteVpn ? await vpn.logs() : '';
+  const parts = [reportHeader(), '', '=== app ===', sessionLog.text()];
+  if (helper) parts.push('=== helper (engines) ===', helper);
+  const previous = sessionLog.previous(150_000);
+  if (previous) parts.push('=== previous run (end) ===', previous);
+  // The helper's log passes through the app's own redaction too.
+  return redactWithSession(parts.join('\n'));
+}
+
+function redactWithSession(text: string): string {
+  const session = store.session();
+  return session ? redact(text, [...linkSecrets(session.subLink), session.token]) : text;
+}
+
+async function sendReport(message: string): Promise<{ id: string | null }> {
+  const session = store.session();
+  if (!session) throw new ApiError('bad_session', 401);
+  const info = await device();
+  const text = tail(await logText(), 2_000_000);
+  log('app', 'sending a support report');
+  const id = await new AppApi(appApiBase(session.subLink), userAgent).report(session.token, { message: String(message ?? '').slice(0, 4000), log: text, ...info });
+  log('app', `support report sent${id ? ` (number ${id})` : ''}`);
+  return { id };
+}
+
+async function saveLog(): Promise<boolean> {
+  const name = `dt-connect-log-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.txt`;
+  const options = { defaultPath: path.join(app.getPath('downloads'), name), filters: [{ name: 'Text', extensions: ['txt'] }] };
+  const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) return false;
+  fs.writeFileSync(result.filePath, await logText());
+  return true;
 }
 
 async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
@@ -277,6 +364,9 @@ function bookActivity(now = Date.now()): void {
 
 function onStatus(status: Status): void {
   const previous = lastStatus;
+  if (status.state !== previous.state || status.error !== previous.error) {
+    log('app', `status ${status.state}${status.protocol ? ` ${status.protocol}` : ''}${status.configName ? ` "${status.configName}"` : ''}${status.error ? ` (${status.error})` : ''}${status.notice ? ` notice ${status.notice}` : ''}`);
+  }
   bookActivity();
   lastStatus = status;
   const text = notices[store.settings().language];
@@ -374,12 +464,18 @@ function trayImage(): Electron.NativeImage {
 app.whenReady().then(async () => {
   // Linux without a keyring has no safeStorage; the file is then only private to the user (0600).
   const sealing = safeStorage.isEncryptionAvailable();
+  sessionLog.open(path.join(app.getPath('userData'), 'logs', 'dt-connect.log'));
   store = new Store(path.join(app.getPath('userData'), 'state.json'), {
     encrypt: (text) => (sealing ? safeStorage.encryptString(text).toString('base64') : `plain:${Buffer.from(text).toString('base64')}`),
     decrypt: (sealed) => (sealed.startsWith('plain:') ? Buffer.from(sealed.slice(6), 'base64').toString() : safeStorage.decryptString(Buffer.from(sealed, 'base64'))),
   });
+  const saved = store.session();
+  if (saved) {
+    sessionLog.secret(...linkSecrets(saved.subLink), saved.token);
+    log('app', `signed in as ${saved.username}`);
+  }
   if (system === 'windows') {
-    vpn = new Vpn({ bin: binDir, work: path.join(app.getPath('userData'), 'run') }, windowsKit);
+    vpn = new Vpn({ bin: binDir, work: path.join(app.getPath('userData'), 'run') }, windowsKit, log);
   } else {
     const remote = new RemoteVpn(helperSocket[system]);
     vpn = remote;
@@ -415,6 +511,10 @@ app.whenReady().then(async () => {
   handle('openExternal', async (url: string) => {
     if (/^https?:\/\//.test(url) || url.startsWith('tg://')) await shell.openExternal(url);
   });
+  handle('logText', logText);
+  handle('sendReport', sendReport);
+  handle('saveLog', saveLog);
+  ipcMain.on('log', (_event, text: unknown) => log('window', String(text).slice(0, 4000)));
 
   vpn.on('status', onStatus);
   setInterval(() => bookActivity(), 60_000);

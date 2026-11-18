@@ -76,10 +76,10 @@ jobs:
         run: |
           node dist/smoke.js smoke
           $bin = 'resources\bin\win-x64'
-          & $bin\xray.exe run -test -c smoke\xray-vless.json
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          & $bin\xray.exe run -test -c smoke\xray-wireguard.json
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          foreach ($f in Get-ChildItem smoke\xray-*.json) {
+            & $bin\xray.exe run -test -c $f.FullName
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
           & $bin\sing-box.exe check -c smoke\tun.json
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $v = & $bin\openvpn\openvpn.exe --version 2>&1 | Out-String
@@ -99,6 +99,24 @@ jobs:
           $c | Format-List Name, ServerAddress, TunnelType, AuthenticationMethod, L2tpIPsecAuth
           if ($c.ServerAddress -ne 'vpn.example.com' -or "$($c.TunnelType)" -ne 'L2tp') { exit 1 }
           Remove-VpnConnection -Name 'DT Connect L2TP' -Force
+      # OpenVPN through the adapters the app adds itself (TAP-Windows6 and ovpn-dco), to a server on this machine.
+      - name: Connect OpenVPN the way the app does
+        shell: bash
+        env:
+          MSYS_NO_PATHCONV: '1'
+        run: |
+          ls -R release/win-unpacked/resources/bin/openvpn | head -40
+          d=$(mktemp -d)
+          (
+            cd "$d"
+            openssl ecparam -name prime256v1 -genkey -noout -out ca.key
+            openssl req -x509 -new -key ca.key -subj "/CN=DT Connect test CA" -days 2 -out ca.crt
+            openssl ecparam -name prime256v1 -genkey -noout -out server.key
+            openssl req -new -key server.key -subj "/CN=manifold-openvpn-server" -out server.csr
+            printf 'basicConstraints=CA:FALSE\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth\n' > ext.cnf
+            openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 2 -extfile ext.cnf -out server.crt
+          )
+          node dist/openvpn-check.js release/win-unpacked/resources "$(cygpath -w "$d")"
       - uses: actions/upload-artifact@v4
         with:
           name: DT-Connect-Windows
@@ -128,8 +146,7 @@ jobs:
         run: |
           node dist/smoke.js smoke
           bin=resources/bin/linux-x64
-          $bin/xray run -test -c smoke/xray-vless.json
-          $bin/xray run -test -c smoke/xray-wireguard.json
+          for f in smoke/xray-*.json; do $bin/xray run -test -c "$f"; done
           $bin/sing-box check -c smoke/tun.json
       - name: Build deb, rpm and pacman packages (x64 and arm64)
         run: npx electron-builder --linux --x64 --arm64 --publish never
@@ -203,7 +220,7 @@ jobs:
         run: |
           node dist/smoke.js smoke
           bin=resources/bin/mac-arm64
-          $bin/xray run -test -c smoke/xray-vless.json
+          for f in smoke/xray-*.json; do $bin/xray run -test -c "$f"; done
           $bin/sing-box check -c smoke/tun.json
       # One architecture at a time: both builds would share the same intermediate component package.
       - name: Build the installer packages (Intel and Apple silicon)
@@ -245,13 +262,27 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.14.3
+      # The desktop's Xray release with its geo files; the Android core is built from the same release.
+      - name: Xray's release and geo files
+        run: |
+          node scripts/fetch-binaries.mjs linux x64
+          cp resources/bin/linux-x64/geoip.dat resources/bin/linux-x64/geosite.dat android/app/src/main/assets/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Xray stopped tagging Go module versions (v1.*) after March 2026, so @latest stays there: the
+      # release's commit gives the same code the desktop app runs.
       - name: Xray-core for Android (gomobile, all four processor families)
         working-directory: android/core
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
         run: |
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          go get github.com/xtls/xray-core@latest
+          tag=$(sed -n 's/^xray //p' "$GITHUB_WORKSPACE/resources/bin/linux-x64/VERSIONS.txt")
+          commit=$(git ls-remote https://github.com/XTLS/Xray-core "refs/tags/$tag^{}" | cut -f1)
+          [ -n "$commit" ] || commit=$(git ls-remote https://github.com/XTLS/Xray-core "refs/tags/$tag" | cut -f1)
+          [ -n "$commit" ] || { echo "::error::no commit for Xray $tag"; exit 1; }
+          echo "Xray $tag is $commit"
+          go get "github.com/xtls/xray-core@$commit"
           go mod tidy
           go get golang.org/x/mobile/bind@latest
           go install golang.org/x/mobile/cmd/gomobile@latest
@@ -289,12 +320,6 @@ jobs:
         run: |
           cp -r /tmp/ovpn-jni/. android/app/src/main/jniLibs/
           find android/app/src/main/jniLibs -name libovpnexec.so -exec ls -la {} +
-      - name: Xray's geo files
-        run: |
-          node scripts/fetch-binaries.mjs linux x64
-          cp resources/bin/linux-x64/geoip.dat resources/bin/linux-x64/geosite.dat android/app/src/main/assets/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # A release's APKs must carry the key every later update is signed with, or customers have to
       # uninstall to update; so a release stops here until the key is in the repository's secrets.
       - name: Signing key

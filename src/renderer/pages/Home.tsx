@@ -112,7 +112,16 @@ export function Home(props: Props) {
       </section>
 
       {status.blocking && <div className="banner warn">{t('blocking')}</div>}
-      {!status.blocking && status.error && <div className="banner error">{errorText(t, status.error)}</div>}
+      {!status.blocking && status.error && (
+        <div className="banner error">
+          <span>{errorText(t, status.error)}</span>
+          {(status.error === 'all_failed' || status.error === 'connection_lost') && (
+            <button type="button" className="link-btn" onClick={() => props.onOpenSettings('support')}>
+              {t('reportShort')}
+            </button>
+          )}
+        </div>
+      )}
       {status.notice && <div className="banner warn">{t(`notice.${status.notice}`)}</div>}
 
       <Recents {...props} byId={byId} usable={usable} />
