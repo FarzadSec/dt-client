@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { openvpnArgs, unsafeOpenvpnDirective } from '../src/main/configs/openvpn';
+import { openvpnArgs, openvpnPushedAddress, openvpnUdp, unsafeOpenvpnDirective } from '../src/main/configs/openvpn';
 
 // The shape Manifold's renderer writes, client directives and inline credentials included.
 const panelProfile = `# de-1
@@ -69,5 +69,33 @@ describe('openvpnArgs', () => {
     expect(args).toContain('--script-security');
     expect(args[args.indexOf('--script-security') + 1]).toBe('1');
     expect(args).not.toContain('--windows-driver');
+  });
+});
+
+describe('the exit notification', () => {
+  it('is asked for over UDP, after the profile so it wins, and not over TCP', () => {
+    const udp = openvpnArgs('/run/p.ovpn', 7505, 'linux', { udp: true });
+    const at = udp.indexOf('--explicit-exit-notify');
+    expect(at).toBeGreaterThan(udp.indexOf('--config'));
+    expect(udp[at + 1]).toBe('1');
+    expect(openvpnArgs('C:\\p.ovpn', 7505, 'windows', { udp: true, disableDco: true })).toContain('--explicit-exit-notify');
+    expect(openvpnArgs('/run/p.ovpn', 7505, 'linux', { udp: false })).not.toContain('--explicit-exit-notify');
+  });
+
+  it('reads the tunnel address the server pushed', () => {
+    const subnet = "2026-11-19 17:38:31 PUSH: Received control message: 'PUSH_REPLY,route-gateway 10.89.0.1,topology subnet,ping 10,ping-restart 120,ifconfig 10.89.0.2 255.255.255.0,peer-id 0,cipher AES-256-GCM'";
+    expect(openvpnPushedAddress(subnet)).toBe('10.89.0.2');
+    expect(openvpnPushedAddress("PUSH: Received control message: 'PUSH_REPLY,ifconfig 10.8.0.6 10.8.0.5,peer-id 1'")).toBe('10.8.0.6');
+    expect(openvpnPushedAddress("PUSH: Received control message: 'PUSH_REPLY,ifconfig-ipv6 fd00::2/64 fd00::1,ifconfig 10.8.0.6 255.255.255.0'")).toBe('10.8.0.6');
+    expect(openvpnPushedAddress('net_addr_v4_add: 10.89.0.2/24 dev dtvpn0')).toBeNull();
+  });
+
+  it('reads the transport the way OpenVPN does', () => {
+    expect(openvpnUdp('client\nremote vpn.example.com 1194\n')).toBe(true);
+    expect(openvpnUdp('client\nproto udp4\nremote vpn.example.com 1194\n')).toBe(true);
+    expect(openvpnUdp('client\nproto tcp-client\nremote vpn.example.com 443\n')).toBe(false);
+    expect(openvpnUdp('client\nproto udp\nremote vpn.example.com 443 tcp\n')).toBe(false);
+    // "proto" must not be read off the next line.
+    expect(openvpnUdp('client\nproto\ntcp-client\nremote vpn.example.com 443\n')).toBe(true);
   });
 });

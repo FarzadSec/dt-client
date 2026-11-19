@@ -1,3 +1,8 @@
+**DT Connect 1.1.1**
+
+- **Disconnecting OpenVPN now ends the session on the server too.** Over UDP the app sends OpenVPN's exit notification and lets OpenVPN finish, where it used to stop it at once (on Windows by ending the process). The server lets go of the session within about five seconds instead of holding it, and the account's device slot, for up to two minutes, so switching to another location or protocol right after a disconnect works.
+- The app tells the panel when it leaves a connection: which protocol, at which location, and for OpenVPN the tunnel address it had. A panel that counts simultaneous users can then free the slot at once. WireGuard has no message of its own for this. Panels without this feature are unaffected.
+
 **DT Connect 1.1.0**
 
 - **Report a problem**: every app keeps a log since it started (each connection attempt and why it failed, the VPN engines' messages), with passwords, keys and links taken out. Settings → Support on the desktop and Account → Report a problem on Android show it, copy it, save or share it, and send it with a message to support, who see it under the user's account (on panels that take reports).

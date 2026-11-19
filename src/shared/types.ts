@@ -121,6 +121,8 @@ export interface Status {
   serverId?: number | null;
   configName?: string;
   protocol?: string;
+  // The tunnel address the server gave this device, where the engine reports one (OpenVPN).
+  address?: string;
   since?: number;
   error?: string;
   notice?: string;
