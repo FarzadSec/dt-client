@@ -60,7 +60,7 @@ fi
 cat > /etc/systemd/system/dt-connect-helper.service <<'UNIT'
 [Unit]
 Description=DT Connect VPN helper
-Documentation=https://github.com/FarzadSec/dt-client
+Documentation=https://github.com/DataCraft-Team/DT-Connect
 After=network-online.target NetworkManager.service
 Wants=network-online.target
 

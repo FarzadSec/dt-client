@@ -1,3 +1,7 @@
+**DT Connect 1.1.1**
+
+- Downloads now live at [github.com/DataCraft-Team/DT-Connect](https://github.com/DataCraft-Team/DT-Connect). The app itself is the same as 1.1.0.
+
 **DT Connect 1.1.0**
 
 - **Report a problem**: every app keeps a log since it started (each connection attempt and why it failed, the VPN engines' messages), with passwords, keys and links taken out. Settings → Support on the desktop and Account → Report a problem on Android show it, copy it, save or share it, and send it with a message to support, who see it under the user's account (on panels that take reports).

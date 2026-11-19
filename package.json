@@ -1,7 +1,7 @@
 {
   "name": "dt-connect",
   "productName": "DT Connect",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "DT Connect, the VPN app of DataCraft",
   "author": "DataCraft",
   "license": "UNLICENSED",
@@ -45,5 +45,5 @@
     "world-atlas": "^2.0.2"
   },
   "desktopName": "dt-connect.desktop",
-  "homepage": "https://github.com/FarzadSec/dt-client"
+  "homepage": "https://github.com/DataCraft-Team/DT-Connect"
 }
