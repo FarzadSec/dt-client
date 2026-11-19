@@ -43,8 +43,28 @@ export function unsafeOpenvpnDirective(profile: string): string | null {
   return inline ? `<${inline}>` : null;
 }
 
-export function openvpnArgs(configPath: string, managementPort: number, os: Os, opts: { disableDco?: boolean } = {}): string[] {
+// OpenVPN's default is UDP; "proto tcp-client" or a TCP remote makes it TCP. ([ \t], not \s: a match must not run into the next line.)
+export function openvpnUdp(profile: string): boolean {
+  const remoteProto = /^[ \t]*remote[ \t]+\S+[ \t]+\d+[ \t]+(\S+)/m.exec(profile)?.[1];
+  const proto = remoteProto ?? /^[ \t]*proto[ \t]+(\S+)/m.exec(profile)?.[1] ?? 'udp';
+  return proto.toLowerCase().startsWith('udp');
+}
+
+// Over UDP the server only learns that a client left from an exit notification; without one it keeps
+// the session, and the account's seat, until its keepalive gives up (two minutes on Manifold). OpenVPN
+// waits a second per try before it exits; one is enough, since the app also tells the panel which
+// session left (AppApi.disconnected). Given after --config, so it wins over the profile.
+export const openvpnExitNotify = ['--explicit-exit-notify', '1'];
+
+// The tunnel address the server gave, from its PUSH_REPLY: what tells the panel which session was this device's.
+export function openvpnPushedAddress(line: string): string | null {
+  if (!/PUSH_REPLY/.test(line)) return null;
+  return /(?:^|[,'\s])ifconfig ((?:\d{1,3}\.){3}\d{1,3})\b/.exec(line)?.[1] ?? null;
+}
+
+export function openvpnArgs(configPath: string, managementPort: number, os: Os, opts: { disableDco?: boolean; udp?: boolean } = {}): string[] {
   const args = ['--config', configPath, '--management', '127.0.0.1', String(managementPort), '--script-security', '1'];
+  if (opts.udp) args.push(...openvpnExitNotify);
   // Windows: OpenVPN 2.6 takes the app's ovpn-dco adapter when the profile allows Data Channel Offload,
   // and its TAP-Windows6 adapter otherwise (src/main/system/openvpnAdapters.ts).
   if (os === 'windows') return opts.disableDco ? [...args, '--disable-dco'] : args;

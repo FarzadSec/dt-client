@@ -78,6 +78,11 @@ object OpenVpnProfile {
             out.append(line).append('\n')
             i++
         }
+        // Over UDP the server only learns that a client left from an exit notification; without one it
+        // keeps the session, and the account's seat, until its keepalive gives up (two minutes on Manifold).
+        // OpenVPN waits a second per try before it exits; one is enough, since the app also tells the panel
+        // which session left (Api.disconnected). The last one in the file wins.
+        if (udp(profile)) out.append("explicit-exit-notify 1\n")
         out.append("management ").append(managementSocket).append(" unix\n")
         out.append("management-hold\n")
         out.append("management-query-passwords\n")

@@ -69,6 +69,9 @@ class DtVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tun: ParcelFileDescriptor? = null
     @Volatile private var openvpn: OpenVpn? = null
+    // The connection that is up, until stopEngines takes it down, and the tunnel address OpenVPN was given.
+    @Volatile private var connectedTo: Status? = null
+    @Volatile private var openvpnAddress: String? = null
     private var work: Job? = null
     private var refresher: Job? = null
 
@@ -121,7 +124,13 @@ class DtVpnService : VpnService() {
         VpnState.status.value = status
     }
 
+    // Called off the main thread: once the tunnel is down, the panel hears that this device left the
+    // connection it was on, so its seat is free at once and not only after WireGuard's quiet.
     private fun stopEngines() {
+        val left = connectedTo
+        val address = openvpnAddress
+        connectedTo = null
+        openvpnAddress = null
         refresher?.cancel()
         openvpn?.let { runCatching { it.stop() } }
         openvpn = null
@@ -129,6 +138,9 @@ class DtVpnService : VpnService() {
         runCatching { tun?.close() }
         tun = null
         runCatching { Core.stop() }
+        left?.takeIf { it.protocol.isNotEmpty() }?.let { conn ->
+            Repo.tellPanelLeft(conn.protocol, conn.serverId, if (conn.protocol == "openvpn") address else null)
+        }
     }
 
     // geoip.dat and geosite.dat ship in the APK and are copied once per version.
@@ -200,7 +212,9 @@ class DtVpnService : VpnService() {
                 }
                 Attempt.Started -> {
                     Repo.updateSettings { it.copy(locationId = locationId) }
-                    set(Status(ConnState.Connected, locationId, config.locationId, config.name, config.protocol, System.currentTimeMillis()))
+                    val up = Status(ConnState.Connected, locationId, config.locationId, config.name, config.protocol, System.currentTimeMillis())
+                    connectedTo = up
+                    set(up)
                     startRefresher()
                     return
                 }
@@ -356,6 +370,7 @@ class DtVpnService : VpnService() {
     }
 
     private fun establishOpenVpn(spec: OpenVpn.TunSpec, settings: Settings): ParcelFileDescriptor? {
+        openvpnAddress = spec.address?.address
         val builder = Builder().setSession("DT Connect").setMtu(spec.mtu)
         spec.address?.let { builder.addAddress(it.address, it.prefix) }
         spec.address6?.let { builder.addAddress(it.address, it.prefix) }

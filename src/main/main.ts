@@ -76,6 +76,9 @@ let profileCache: AppProfile | null = null;
 let lastStatus: Status = { state: 'disconnected' };
 let bookedUntil = 0;
 let reconnectAttempts = 0;
+// The connection the device was on until it left 'connected', for the panel (tellPanelLeft).
+let leaving: { protocol: string; locationId: number | null; address?: string } | null = null;
+let panelTold: Promise<void> = Promise.resolve();
 let fetchedAt = 0;
 // The newest notice the window has had; only ones after it arrive as system notifications.
 let noticesKnownUpTo = 0;
@@ -362,8 +365,27 @@ function bookActivity(now = Date.now()): void {
   bookedUntil = now;
 }
 
+// Once the old tunnel is down (a disconnect, a switch to another location or protocol, a drop), the
+// panel hears that this device left, so its seat is free at once and not only after WireGuard's quiet.
+async function tellPanelLeft(left: { protocol: string; locationId: number | null; address?: string }): Promise<void> {
+  const session = store.session();
+  if (!session) return;
+  const info = await device();
+  await new AppApi(appApiBase(session.subLink), userAgent)
+    .disconnected(session.token, info.deviceId, left)
+    .catch((err: unknown) => log('app', `telling the panel this device left failed: ${codeOf(err)}`));
+}
+
 function onStatus(status: Status): void {
   const previous = lastStatus;
+  if (previous.state === 'connected' && status.state !== 'connected' && previous.protocol) {
+    leaving = { protocol: previous.protocol, locationId: previous.serverId ?? null, address: previous.address };
+  }
+  if (status.state === 'disconnected' && leaving) {
+    const left = leaving;
+    leaving = null;
+    panelTold = tellPanelLeft(left);
+  }
   if (status.state !== previous.state || status.error !== previous.error) {
     log('app', `status ${status.state}${status.protocol ? ` ${status.protocol}` : ''}${status.configName ? ` "${status.configName}"` : ''}${status.error ? ` (${status.error})` : ''}${status.notice ? ` notice ${status.notice}` : ''}`);
   }
@@ -540,7 +562,10 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   quitting = true;
   bookActivity();
-  void vpn.disconnect().finally(() => app.exit(0));
+  void vpn
+    .disconnect()
+    .then(() => Promise.race([panelTold, new Promise((r) => setTimeout(r, 5000))]))
+    .finally(() => app.exit(0));
 });
 
 app.on('window-all-closed', () => {

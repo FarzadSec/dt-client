@@ -108,6 +108,29 @@ export class AppApi {
     return typeof id === 'number' || typeof id === 'string' ? String(id) : null;
   }
 
+  // POST /disconnected: this device has left the protocol it used at that location. WireGuard tells
+  // the server nothing when a peer goes, so without this the panel holds the account's seat until the
+  // peer has been quiet for a while. OpenVPN's goodbye takes the server five seconds, so its tunnel
+  // address goes along: it names the session among an account's several, for the panel to close it.
+  // A panel without the endpoint answers 404 or 405, which is fine: it then waits as before.
+  async disconnected(token: string, deviceId: string, left: { protocol: string; locationId: number | null; address?: string }): Promise<void> {
+    try {
+      await call(
+        this.fetchImpl,
+        `${this.base}/disconnected`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'X-HWID': deviceId, 'User-Agent': this.userAgent, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ protocol: left.protocol, locationId: left.locationId, ...(left.address ? { address: left.address } : {}) }),
+        },
+        5000,
+      );
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 404 || err.status === 405 || err.status === 501)) return;
+      throw err;
+    }
+  }
+
   async logout(token: string, deviceId: string): Promise<void> {
     await call(this.fetchImpl, `${this.base}/logout`, {
       method: 'POST',

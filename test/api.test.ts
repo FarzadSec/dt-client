@@ -60,3 +60,34 @@ describe('AppApi', () => {
     await expect(api.profile('tok', 'd')).rejects.toMatchObject({ code: 'bad_response' });
   });
 });
+
+describe('telling the panel this device left', () => {
+  it('names the protocol and the location it left, with the session', async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const api = new AppApi('https://s/sub/x/app/v1', 'ua', fakeFetch(200, { ok: true }, seen));
+    await api.disconnected('tok', 'device-0123456789', { protocol: 'wireguard', locationId: 3 });
+    expect(seen.url).toBe('https://s/sub/x/app/v1/disconnected');
+    expect(seen.init?.method).toBe('POST');
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ protocol: 'wireguard', locationId: 3 });
+    const headers = seen.init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer tok');
+    expect(headers['X-HWID']).toBe('device-0123456789');
+  });
+
+  it('names the OpenVPN session by its tunnel address', async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    await new AppApi('https://s/sub/x/app/v1', 'ua', fakeFetch(200, { ok: true }, seen)).disconnected('tok', 'd', { protocol: 'openvpn', locationId: 2, address: '10.8.0.6' });
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ protocol: 'openvpn', locationId: 2, address: '10.8.0.6' });
+  });
+
+  it('is nothing to worry about on a panel without the endpoint', async () => {
+    for (const status of [404, 405, 501]) {
+      await expect(new AppApi('https://s/sub/x/app/v1', 'ua', fakeFetch(status, null)).disconnected('tok', 'd', { protocol: 'openvpn', locationId: null })).resolves.toBeUndefined();
+    }
+  });
+
+  it('still reports an ended session', async () => {
+    const api = new AppApi('https://s/sub/x/app/v1', 'ua', fakeFetch(401, { error: 'bad_session' }));
+    await expect(api.disconnected('tok', 'd', { protocol: 'wireguard', locationId: 1 })).rejects.toMatchObject({ code: 'bad_session' });
+  });
+});

@@ -139,13 +139,15 @@ class OpenVpn(private val context: Context, private val host: Host) {
         outcome
     }
 
-    // SIGINT lets OpenVPN tell the server it is leaving; its exit closes the tunnel.
+    // SIGINT lets OpenVPN tell the server it is leaving (the profile asks for the exit notification,
+    // OpenVpnProfile.prepare); its exit closes the tunnel. The notification takes about a second, so
+    // OpenVPN gets five before it is destroyed.
     fun stop() {
         stopping = true
         unwatchNetwork()
         send("signal SIGINT")
         process?.let { proc ->
-            val deadline = System.currentTimeMillis() + 2000
+            val deadline = System.currentTimeMillis() + 5000
             while (alive(proc) && System.currentTimeMillis() < deadline) Thread.sleep(50)
             if (alive(proc)) proc.destroy()
         }

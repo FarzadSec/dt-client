@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { AppProfile, Engine, Settings, Status } from '../shared/types';
 import { candidates, type Candidate } from './candidates';
 import { l2tpAccount } from './configs/l2tp';
-import { openvpnArgs, openvpnProfile, unsafeOpenvpnDirective } from './configs/openvpn';
+import { openvpnArgs, openvpnProfile, openvpnPushedAddress, openvpnUdp, unsafeOpenvpnDirective } from './configs/openvpn';
 import { singboxTunConfig } from './configs/singbox';
 import { dnsServers, proxyOutboundFor, serverNames, xrayConfig } from './configs/xray';
 import { EngineProcess, waitForLine } from './engines/process';
@@ -22,6 +22,8 @@ export interface VpnPaths {
 
 interface Connection {
   readonly engine: Engine;
+  // The tunnel address the server gave this device, where the engine reports one (OpenVPN).
+  readonly address?: string;
   start(): Promise<boolean>;
   stop(): Promise<void>;
   // Called once if the connection drops by itself; blocking means traffic stays held back.
@@ -135,10 +137,15 @@ class XrayConnection implements Connection {
   }
 }
 
+// The exit notification takes about a second (openvpnExitNotify); more is a stuck OpenVPN.
+const openvpnExitGraceMs = 5000;
+
 class OpenvpnConnection implements Connection {
   readonly engine = 'openvpn' as const;
   private proc: EngineProcess | null = null;
   private managementPort = 0;
+  private udp = true;
+  address: string | undefined;
   private lost: ((blocking: boolean) => void) | null = null;
 
   constructor(
@@ -168,6 +175,7 @@ class OpenvpnConnection implements Connection {
       this.log('vpn', `the profile has '${unsafe}', which the app does not run`);
       return false;
     }
+    this.udp = openvpnUdp(profile);
     const profileFile = path.join(this.paths.work, 'profile.ovpn');
     writePrivate(profileFile, profile);
     // Windows: OpenVPN only opens an adapter that already exists, so the app makes its own first.
@@ -189,7 +197,7 @@ class OpenvpnConnection implements Connection {
   private async run(exe: string, profileFile: string, disableDco: boolean): Promise<{ ok: boolean; dcoTrouble: boolean; authFailed: boolean }> {
     this.managementPort = await freePort();
     const proc = logged(
-      new EngineProcess('openvpn', exe, openvpnArgs(profileFile, this.managementPort, this.kit.os, { disableDco }), path.join(this.paths.work, 'openvpn.log'), path.dirname(exe)),
+      new EngineProcess('openvpn', exe, openvpnArgs(profileFile, this.managementPort, this.kit.os, { disableDco, udp: this.udp }), path.join(this.paths.work, 'openvpn.log'), path.dirname(exe)),
       this.log,
     );
     this.proc = proc;
@@ -199,6 +207,7 @@ class OpenvpnConnection implements Connection {
     const watch = (line: string) => {
       if (/dco|data channel offload/i.test(line) && /error|fail|not supported|unable|cannot|disabl/i.test(line)) dcoTrouble = true;
       if (/AUTH_FAILED/.test(line)) authFailed = true;
+      this.address = openvpnPushedAddress(line) ?? this.address;
       if (/Exiting due to fatal error|There are no TAP-Windows|currently in use or disabled/.test(line)) fatal = true;
     };
     proc.on('line', watch);
@@ -217,13 +226,18 @@ class OpenvpnConnection implements Connection {
   async stop(): Promise<void> {
     const proc = this.proc;
     if (!proc?.alive) return;
-    // SIGTERM through the management port lets OpenVPN take its routes down itself.
+    proc.expectExit();
+    // SIGTERM through the management port lets OpenVPN tell the server it is leaving and take its
+    // routes down itself. It has to be given the time: killing it at once (on Windows a kill ends the
+    // process outright) left the server holding the session, and the account's seat, for two minutes.
     await new Promise<void>((resolve) => {
-      const socket = net.connect({ host: '127.0.0.1', port: this.managementPort }, () => socket.end('signal SIGTERM\r\n'));
+      // Sent is enough; the process's exit, awaited below, is what says OpenVPN is done.
+      const socket = net.connect({ host: '127.0.0.1', port: this.managementPort }, () => socket.end('signal SIGTERM\r\n', () => resolve()));
       socket.on('error', () => resolve());
       socket.on('close', () => resolve());
       setTimeout(resolve, 2000);
     });
+    if (!(await proc.exited(openvpnExitGraceMs))) this.log('vpn', `OpenVPN had not exited ${openvpnExitGraceMs / 1000} s after SIGTERM; stopping it`);
     await proc.stop(8000);
   }
 }
@@ -347,6 +361,7 @@ export class Vpn extends EventEmitter {
         serverId,
         configName: candidate.config.name,
         protocol: candidate.config.protocol,
+        address: (connection as Connection).address,
         since: Date.now(),
         notice,
       });

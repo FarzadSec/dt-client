@@ -73,6 +73,9 @@ class OpenVpnTest {
         assertFalse(prepared.config.contains("pa ss"))
         assertTrue(prepared.config.contains("\nauth-user-pass\n<ca>"))
         assertTrue(prepared.config.endsWith("management /data/x/mgmt unix\nmanagement-hold\nmanagement-query-passwords\n"))
+        // UDP tells the server when the app disconnects; TCP's closing connection already does.
+        assertTrue(prepared.config.contains("\nexplicit-exit-notify 1\nmanagement "))
+        assertFalse(OpenVpnProfile.prepare(decoded.replace("proto udp", "proto tcp-client"), "/data/x/mgmt").config.contains("explicit-exit-notify"))
 
         assertEquals("10.0.2.2" to 1195, OpenVpnProfile.remote(decoded))
         assertTrue(OpenVpnProfile.udp(decoded))
