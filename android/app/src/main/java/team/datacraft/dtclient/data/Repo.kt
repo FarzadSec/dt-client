@@ -6,13 +6,18 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import android.provider.Settings.Secure
+import java.net.URI
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import team.datacraft.dtclient.BuildConfig
+import team.datacraft.dtclient.core.Core
+import team.datacraft.dtclient.vpn.Candidates
 import team.datacraft.dtclient.vpn.Ping
+import team.datacraft.dtclient.vpn.VpnState
 
 // What the app knows and shows: the session, the profile, the settings and the pings.
 // The token stays in the app's private storage, which only this app can read.
@@ -50,6 +55,13 @@ object Repo {
         val since = prefs.getLong("openSince", 0L)
         val seen = prefs.getLong("openSeen", 0L)
         if (since > 0) closeSession(Session(since, maxOf(since, seen)))
+        AppLog.secret(prefs.getString("token", null), *(prefs.getString("subLink", null)?.let { AppLog.linkSecrets(it).toTypedArray() } ?: emptyArray()))
+        if (signedIn.value) AppLog.i("app", "signed in as ${lastUsername()}: ${profile.value?.let { summary(it) }}")
+    }
+
+    fun summary(p: Profile): String {
+        val counts = p.configs.groupingBy { it.protocol }.eachCount()
+        return "${p.locations.size} location(s), ${p.configs.size} config(s): ${counts.entries.joinToString(", ") { "${it.key} ${it.value}" }.ifEmpty { "none" }}"
     }
 
     // Every connection state passes through here: a session starts on Connected and ends when that stops.
@@ -111,10 +123,19 @@ object Repo {
     )
 
     suspend fun login(subLink: String, username: String) = withContext(Dispatchers.IO) {
+        AppLog.secret(*AppLog.linkSecrets(subLink).toTypedArray())
         val base = Api.base(subLink)
+        AppLog.i("app", "signing in as ${username.trim()} on ${runCatching { URI(base).host }.getOrNull()}")
         val info = device()
-        val token = Api.login(base, username.trim(), info, userAgent)
+        val token = try {
+            Api.login(base, username.trim(), info, userAgent)
+        } catch (e: ApiException) {
+            AppLog.w("app", "sign-in failed: ${e.code}")
+            throw e
+        }
+        AppLog.secret(token)
         val fetched = Api.profile(base, token, info.deviceId, userAgent)
+        AppLog.i("app", "signed in: ${summary(fetched)}")
         val now = System.currentTimeMillis()
         prefs.edit().putString("subLink", subLink.trim()).putString("username", username.trim()).putString("token", token).putString("profile", fetched.raw).putLong("fetchedAt", now).apply()
         profile.value = fetched
@@ -138,8 +159,77 @@ object Repo {
             fetchedAt.value = now
             null
         } catch (e: ApiException) {
+            AppLog.w("app", "profile refresh failed: ${e.code}")
             if (e.code in sessionEnding) signOut(e.code)
             e.code
+        }
+    }
+
+    // What support needs to read a log: the app, the phone, the settings, the account's configs and the state.
+    private fun reportHeader(): String {
+        val s = settings.value
+        val p = profile.value
+        val st = VpnState.status.value
+        val lines = mutableListOf(
+            "DT Connect ${BuildConfig.VERSION_NAME} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ${Build.MANUFACTURER} ${Build.MODEL} · ${Build.SUPPORTED_ABIS.joinToString(",")}",
+            "Engines: Xray ${runCatching { Core.version() }.getOrDefault("?")}",
+            "Account: ${p?.account?.username ?: lastUsername()} · panel ${runCatching { URI(lastSubLink()).host }.getOrNull() ?: "-"}",
+            "Status: ${st.state} ${st.protocol} ${if (st.configName.isNotEmpty()) "\"${st.configName}\"" else ""} ${if (st.error.isNotEmpty()) "error ${st.error}" else ""}".trim(),
+            "Settings: protocol ${s.protocol}, Iran direct ${s.iranDirect}, ad block ${s.adBlock}, DNS ${s.dns.ifEmpty { "default" }}, apps outside ${s.splitApps.size}, language ${s.language}",
+            "Profile: ${p?.let { summary(it) } ?: "-"}${if (fetchedAt.value > 0) " · fetched ${java.util.Date(fetchedAt.value)}" else ""}",
+        )
+        for (c in p?.configs ?: emptyList()) {
+            val target = Candidates.serverAddress(c)
+            lines += "  ${c.protocol.padEnd(11)} location ${(c.locationId?.toString() ?: "-").padEnd(4)} ${target?.let { "${it.first}:${it.second}" } ?: "?"} \"${c.name}\"${if (Candidates.runnable(c)) "" else " (not run on Android)"}"
+        }
+        return lines.joinToString("\n")
+    }
+
+    private fun fileTail(name: String, maxChars: Int): String = runCatching {
+        val f = java.io.File(app.filesDir, "logs/$name")
+        if (f.exists()) AppLog.tail(f.readText(), maxChars) else ""
+    }.getOrDefault("")
+
+    // The app's own process log (logcat), for what went past AppLog, such as a native library's messages.
+    private fun logcat(): String = runCatching {
+        val proc = ProcessBuilder("logcat", "-d", "-v", "time", "-t", "800", "--pid=${android.os.Process.myPid()}").redirectErrorStream(true).start()
+        val text = proc.inputStream.bufferedReader().use { it.readText() }
+        proc.waitFor()
+        text
+    }.getOrDefault("")
+
+    fun logText(): String {
+        val parts = mutableListOf(reportHeader(), "", "=== app ===", AppLog.text())
+        fileTail("xray.log", 200_000).takeIf { it.isNotBlank() }?.let { parts += listOf("=== xray (current connection) ===", it) }
+        fileTail("tunnel.log", 100_000).takeIf { it.isNotBlank() }?.let { parts += listOf("=== tunnel ===", it) }
+        logcat().takeIf { it.isNotBlank() }?.let { parts += listOf("=== logcat ===", AppLog.tail(it, 200_000)) }
+        AppLog.previousRun().takeIf { it.isNotBlank() }?.let { parts += listOf("=== previous run (end) ===", it) }
+        val token = prefs.getString("token", null)
+        return AppLog.redact(parts.joinToString("\n"), listOfNotNull(token) + AppLog.linkSecrets(lastSubLink()).filter { it.isNotEmpty() })
+    }
+
+    // Null on success with the report's number in reportId; otherwise the error code.
+    suspend fun sendReport(message: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        val subLink = prefs.getString("subLink", null)
+        val token = prefs.getString("token", null)
+        if (subLink == null || token == null) return@withContext null to "bad_session"
+        AppLog.i("app", "sending a support report")
+        val info = device()
+        val body = JSONObject()
+            .put("message", message.take(4000))
+            .put("log", AppLog.tail(logText(), 2_000_000))
+            .put("deviceId", info.deviceId)
+            .put("deviceName", info.deviceName)
+            .put("os", info.os)
+            .put("osVersion", info.osVersion)
+            .put("appVersion", info.appVersion)
+        try {
+            val id = Api.report(Api.base(subLink), token, info.deviceId, userAgent, body)
+            AppLog.i("app", "support report sent${id?.let { " (number $it)" } ?: ""}")
+            id to null
+        } catch (e: ApiException) {
+            AppLog.w("app", "support report failed: ${e.code}")
+            null to e.code
         }
     }
 

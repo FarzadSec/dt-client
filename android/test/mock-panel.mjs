@@ -4,12 +4,15 @@
 // Usage: node mock-panel.mjs <dir with the outbounds of protocol-servers.sh> [port]
 import fs from 'node:fs';
 import http from 'node:http';
+import zlib from 'node:zlib';
 
 const dir = process.argv[2];
 const port = Number(process.argv[3] ?? 2096);
 const username = 'demo-user';
 const token = 'test-session-token';
 const outbound = (name) => JSON.parse(fs.readFileSync(`${dir}/${name}.json`, 'utf8'));
+const linkFile = (name) => (fs.existsSync(`${dir}/${name}.link`) ? fs.readFileSync(`${dir}/${name}.link`, 'utf8').trim() : null);
+const reports = [];
 const day = 86_400_000;
 
 const locations = [
@@ -20,6 +23,8 @@ const locations = [
   { id: 5, name: 'UAE', countryCode: 'AE', city: 'Dubai', timezone: 'Asia/Dubai', protocol: 'wireguard' },
   { id: 6, name: 'United States', countryCode: 'US', city: 'New York', timezone: 'America/New_York', protocol: 'vless' },
   { id: 7, name: 'United States', countryCode: 'US', city: 'Los Angeles', timezone: 'America/Los_Angeles', protocol: 'vless' },
+  // VLESS without TLS to a public name (a relay in the country), which Xray 26.7+ refuses unless the app carries it.
+  { id: 8, name: 'Armenia', countryCode: 'AM', city: 'Yerevan', timezone: 'Asia/Yerevan', protocol: 'vless', file: 'vless-plain', host: '10-0-2-2.sslip.io', port: 8082 },
 ];
 
 function profile() {
@@ -33,9 +38,11 @@ function profile() {
     configs: locations.map((l) => ({
       protocol: l.protocol,
       name: `${l.protocol}-${l.countryCode.toLowerCase()}-${l.id}`,
-      link: `${l.protocol}://test-${l.id}@10.0.2.2:${{ vless: 8443, vmess: 8080, trojan: 8081, shadowsocks: 8388, wireguard: 51820 }[l.protocol]}#${encodeURIComponent(l.city)}`,
+      link:
+        linkFile(l.file ?? l.protocol) ??
+        `${l.protocol}://test-${l.id}@${l.host ?? '10.0.2.2'}:${l.port ?? { vless: 8443, vmess: 8080, trojan: 8081, shadowsocks: 8388, wireguard: 51820 }[l.protocol]}#${encodeURIComponent(l.city)}`,
       locationId: l.id,
-      outbound: outbound(l.protocol),
+      outbound: outbound(l.file ?? l.protocol),
     })),
     notices: [
       { id: 2, body: 'به‌روزرسانی سرورهای آلمان امشب ساعت ۲ بامداد انجام می‌شود و چند دقیقه قطعی خواهیم داشت.', level: 'warning', createdAt: now - 2 * 3_600_000 },
@@ -51,6 +58,7 @@ const send = (res, status, body) => {
 
 http.createServer((req, res) => {
   let body = '';
+  req.setEncoding('latin1');
   req.on('data', (chunk) => (body += chunk));
   req.on('end', () => {
     const path = new URL(req.url, 'http://x').pathname;
@@ -66,6 +74,18 @@ http.createServer((req, res) => {
     if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, { error: 'bad_session' });
     if (call === 'profile' && req.method === 'GET') return send(res, 200, profile());
     if (call === 'logout' && req.method === 'POST') return send(res, 200, {});
+    // A support report, gzipped JSON; the test reads back what arrived from /sub/demo/app/v1/reports.
+    if (call === 'report' && req.method === 'POST') {
+      let report = null;
+      try {
+        report = JSON.parse(zlib.gunzipSync(Buffer.from(body, 'latin1')).toString('utf8'));
+      } catch {
+        return send(res, 400, { error: 'bad_request' });
+      }
+      reports.push({ encoding: req.headers['content-encoding'] ?? '', message: report.message, logChars: String(report.log ?? '').length, os: report.os, appVersion: report.appVersion });
+      return send(res, 200, { id: reports.length });
+    }
+    if (call === 'reports' && req.method === 'GET') return send(res, 200, reports);
     return send(res, 404, { error: 'not_found' });
   });
 }).listen(port, '0.0.0.0', () => console.log(`mock panel on :${port}`));

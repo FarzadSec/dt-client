@@ -169,3 +169,10 @@ export const ArrowDownIcon = () => (
     <path d="M12 5v14M6 13l6 6 6-6" />
   </Icon>
 );
+export const LifebuoyIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="3.5" />
+    <path d="M5.6 5.6l4 4M14.4 14.4l4 4M18.4 5.6l-4 4M9.6 14.4l-4 4" />
+  </Icon>
+);

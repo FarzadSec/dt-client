@@ -82,9 +82,11 @@ describe('candidates', () => {
 });
 
 describe('OpenVPN', () => {
-  it('decodes the profile and runs it on wintun with a management port', () => {
+  it('decodes the profile and runs it with a management port on the adapters the app adds', () => {
     expect(openvpnProfile(ovpnLink)).toBe(ovpnText);
-    expect(openvpnArgs('C:\\p.ovpn', 7505, 'windows')).toEqual(['--config', 'C:\\p.ovpn', '--management', '127.0.0.1', '7505', '--script-security', '1', '--windows-driver', 'wintun']);
+    // OpenVPN picks the app's ovpn-dco adapter, or its TAP one when the profile rules Data Channel Offload out.
+    expect(openvpnArgs('C:\\p.ovpn', 7505, 'windows')).toEqual(['--config', 'C:\\p.ovpn', '--management', '127.0.0.1', '7505', '--script-security', '1']);
+    expect(openvpnArgs('C:\\p.ovpn', 7505, 'windows', { disableDco: true })).toContain('--disable-dco');
     expect(() => openvpnProfile('openvpn://' + Buffer.from('hello').toString('base64url'))).toThrow();
   });
 });

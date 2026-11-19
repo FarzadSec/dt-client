@@ -8,6 +8,7 @@ files:
   - dist/**/*
   - '!dist/smoke.js'
   - '!dist/l2tp-check.js'
+  - '!dist/openvpn-check.js'
   - '!dist/helper/**'
   - '!dist/bin/**'
   - package.json

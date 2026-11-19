@@ -43,9 +43,11 @@ export function unsafeOpenvpnDirective(profile: string): string | null {
   return inline ? `<${inline}>` : null;
 }
 
-export function openvpnArgs(configPath: string, managementPort: number, os: Os): string[] {
+export function openvpnArgs(configPath: string, managementPort: number, os: Os, opts: { disableDco?: boolean } = {}): string[] {
   const args = ['--config', configPath, '--management', '127.0.0.1', String(managementPort), '--script-security', '1'];
-  if (os === 'windows') return [...args, '--windows-driver', 'wintun'];
+  // Windows: OpenVPN 2.6 takes the app's ovpn-dco adapter when the profile allows Data Channel Offload,
+  // and its TAP-Windows6 adapter otherwise (src/main/system/openvpnAdapters.ts).
+  if (os === 'windows') return opts.disableDco ? [...args, '--disable-dco'] : args;
   // A fixed name, so the helper can point systemd-resolved at the tunnel afterwards.
   return os === 'linux' ? [...args, '--dev-type', 'tun', '--dev', 'dtvpn0'] : args;
 }

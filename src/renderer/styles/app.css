@@ -1657,3 +1657,51 @@ select {
 [data-os='macos'] .notice-center {
   inset-inline-end: 16px;
 }
+
+.report-hint {
+  line-height: 1.7;
+  margin: 0 0 12px;
+}
+
+.report-text {
+  display: block;
+  resize: vertical;
+  min-height: 90px;
+  margin-bottom: 12px;
+  font: inherit;
+  color: inherit;
+}
+
+.report-result {
+  margin-top: 12px;
+}
+
+.report-result.ok {
+  color: var(--accent);
+}
+
+.log-view {
+  margin: 14px 0 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, 'Cascadia Mono', monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: left;
+  user-select: text;
+}
+
+.banner .link-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

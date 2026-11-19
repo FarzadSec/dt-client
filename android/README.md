@@ -29,7 +29,7 @@ How it connects: Xray-core runs the panel's outbound behind a SOCKS port on 127.
 
 ## Build
 
-CI (`.github/workflows/build.yml`, job `android`) builds everything: `gomobile bind` for `core/` into `app/libs/dtcore.aar`, hev-socks5-tunnel and OpenVPN with the NDK into `app/src/main/jniLibs`, Xray's geo files into `app/src/main/assets`, then `gradle -p android assembleRelease`. The APKs come out per processor family plus one universal APK.
+CI (`.github/workflows/build.yml`, job `android`) builds everything: `gomobile bind` for `core/` into `app/libs/dtcore.aar` (from the commit of the same Xray release the desktop app ships: Xray stopped tagging Go module versions after March 2026, so `@latest` would stay there), hev-socks5-tunnel and OpenVPN with the NDK into `app/src/main/jniLibs`, Xray's geo files into `app/src/main/assets`, then `gradle -p android assembleRelease`. The APKs come out per processor family plus one universal APK.
 
 `openvpn/build.sh` builds OpenVPN for the four processor families with OpenVPN's own CMake build for Android: OpenSSL 3.5 (LTS), LZ4 and LZO linked in statically, so the program needs nothing but Android's libc. The versions are pinned at the top of the script (OpenVPN from its GitHub tag, OpenSSL and LZ4 from theirs, LZO 2.10 from OpenVPN for Android's copy, as LZO has no git home); CI caches the result until the script changes. OpenVPN is GPLv2 and runs as a separate program; its source is the upstream tag the script names, and the licenses of all four are in `licenses/`.
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { useOs } from '../shared/engines';
 import { helperProtocolVersion, helperSocket, lineSplitter, type HelperMessage, type HelperRequest } from '../shared/helperProtocol';
 import { osOf } from '../shared/platform';
+import { SessionLog } from '../main/log';
 import { linuxKit } from '../main/os/linux';
 import { macosKit } from '../main/os/macos';
 import { Vpn } from '../main/vpn';
@@ -19,7 +20,10 @@ useOs(os);
 const socketPath = helperSocket[os];
 const work = os === 'macos' ? '/Library/Application Support/DT Connect/run' : '/var/lib/dt-connect/run';
 fs.mkdirSync(work, { recursive: true, mode: 0o700 });
-const vpn = new Vpn({ bin: path.join(__dirname, '..', 'bin'), work }, os === 'macos' ? macosKit : linuxKit);
+// What the engines said, for the app's support report (the 'logs' request); redacted as it is written.
+const log = new SessionLog(800_000);
+log.write('helper', `DT Connect helper on ${os} ${process.platform} ${process.arch}, Node ${process.version}`);
+const vpn = new Vpn({ bin: path.join(__dirname, '..', 'bin'), work }, os === 'macos' ? macosKit : linuxKit, log.write);
 const clients = new Set<net.Socket>();
 
 function send(socket: net.Socket, message: HelperMessage): void {
@@ -42,6 +46,8 @@ async function answer(req: HelperRequest): Promise<unknown> {
     }
     case 'disconnect':
       return vpn.disconnect();
+    case 'logs':
+      return log.text();
     default:
       throw new Error('bad_request');
   }
@@ -63,7 +69,10 @@ const server = net.createServer((socket) => {
         if (!Number.isSafeInteger(req.id)) return;
         answer(req).then(
           (value) => send(socket, { id: req.id, ok: true, value }),
-          (err: unknown) => send(socket, { id: req.id, ok: false, code: err instanceof Error && err.message === 'bad_request' ? 'bad_request' : 'helper_error' }),
+          (err: unknown) => {
+            log.write('helper', `${req.method} failed: ${err instanceof Error ? err.message : String(err)}`);
+            send(socket, { id: req.id, ok: false, code: err instanceof Error && err.message === 'bad_request' ? 'bad_request' : 'helper_error' });
+          },
         );
       },
       () => socket.destroy(),

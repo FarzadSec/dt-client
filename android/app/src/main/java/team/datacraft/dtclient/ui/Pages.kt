@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -183,6 +184,7 @@ fun AccountPage(p: Profile, settings: Settings, activity: MainActivity) {
     val fetchedAt by Repo.fetchedAt.collectAsState()
     var refreshing by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var reporting by remember { mutableStateOf(false) }
     val a = p.account
     Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PageTitle(t("account"))
@@ -244,6 +246,9 @@ fun AccountPage(p: Profile, settings: Settings, activity: MainActivity) {
             ChoiceChips(listOf("dark" to t("themeDark"), "light" to t("themeLight"), "system" to t("themeSystem")), settings.theme) { v -> Repo.updateSettings { it.copy(theme = v) } }
         }
         DtCard(padding = 14.dp) {
+            NavRow(R.drawable.ic_alert, t("reportProblem"), t("reportRow")) { reporting = true }
+        }
+        DtCard(padding = 14.dp) {
             NavRow(R.drawable.ic_logout, t("logout"), color = Palette.bad) { confirmLogout = true }
         }
         Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -253,6 +258,7 @@ fun AccountPage(p: Profile, settings: Settings, activity: MainActivity) {
         }
         Spacer(Modifier.height(8.dp))
     }
+    if (reporting) ReportSheet(p.supportUrl) { reporting = false }
     if (confirmLogout) {
         AlertDialog(
             onDismissRequest = { confirmLogout = false },
@@ -270,6 +276,101 @@ fun AccountPage(p: Profile, settings: Settings, activity: MainActivity) {
         )
     }
 }
+
+// Sends the log since the app started to the panel, which files it under this account; or copies or shares it.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReportSheet(supportUrl: String, onClose: () -> Unit) {
+    val t = LocalT.current
+    val c = LocalDt.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var message by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf("") }
+    var failed by remember { mutableStateOf(false) }
+    var log by remember { mutableStateOf<String?>(null) }
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = c.button,
+        unfocusedBorderColor = c.line,
+        focusedLabelColor = c.accent,
+        unfocusedLabelColor = c.muted,
+        cursorColor = c.button,
+        focusedContainerColor = c.card,
+        unfocusedContainerColor = c.card,
+    )
+    suspend fun text(): String = withContext(Dispatchers.IO) { Repo.logText() }
+    ModalBottomSheet(onDismissRequest = onClose, containerColor = c.card) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(t("reportProblem"), color = c.text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(t("reportHint"), color = c.muted, fontSize = 13.sp, lineHeight = 21.sp)
+            OutlinedTextField(
+                value = message,
+                onValueChange = { message = it.take(4000) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(t("reportPlaceholder")) },
+                minLines = 3,
+                shape = RoundedCornerShape(18.dp),
+                colors = fieldColors,
+            )
+            PrimaryButton(if (sending) t("reportSending") else t("reportSend"), Modifier.fillMaxWidth(), enabled = !sending, loading = sending) {
+                sending = true
+                result = ""
+                scope.launch {
+                    val (id, error) = Repo.sendReport(message.trim())
+                    sending = false
+                    failed = error != null
+                    result = when {
+                        error == "report_unsupported" -> t("reportUnsupported")
+                        error != null -> t.error(error)
+                        id != null -> t("reportSentId", "id" to iso(id))
+                        else -> t("reportSent")
+                    }
+                    if (error == null) message = ""
+                }
+            }
+            MessageText(result, failed)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton(t("copyLog"), Modifier.weight(1f)) {
+                    scope.launch {
+                        val clip = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                        clip?.setPrimaryClip(android.content.ClipData.newPlainText("DT Connect log", AppLogTail(text(), 300_000)))
+                        Toast.makeText(context, t("copied"), Toast.LENGTH_SHORT).show()
+                    }
+                }
+                SecondaryButton(t("shareLog"), Modifier.weight(1f)) {
+                    scope.launch {
+                        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, "DT Connect log").putExtra(Intent.EXTRA_TEXT, AppLogTail(text(), 150_000))
+                        runCatching { context.startActivity(Intent.createChooser(send, t("shareLog"))) }
+                    }
+                }
+            }
+            SecondaryButton(if (log == null) t("showLog") else t("refreshLog"), Modifier.fillMaxWidth()) {
+                scope.launch { log = AppLogTail(text(), 60_000) }
+            }
+            log?.let { shown ->
+                Ltr {
+                    Text(
+                        shown,
+                        color = c.text,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.line.copy(alpha = 0.35f)).padding(10.dp),
+                    )
+                }
+            }
+            if (supportUrl.isNotEmpty()) {
+                TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(supportUrl))) } }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    Text(t("support"), color = c.accent)
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+private fun AppLogTail(text: String, max: Int): String = team.datacraft.dtclient.data.AppLog.tail(text, max)
 
 @Composable
 private fun InfoLine(label: String, value: String) {

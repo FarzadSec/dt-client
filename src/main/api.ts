@@ -1,3 +1,5 @@
+import { gzipSync } from 'node:zlib';
+
 import type { AppProfile } from '../shared/types';
 
 export interface DeviceInfo {
@@ -23,10 +25,21 @@ type Fetch = typeof fetch;
 
 const timeoutMs = 15_000;
 
-async function call(fetchImpl: Fetch, url: string, init: RequestInit): Promise<unknown> {
+// What a support report carries besides the session: the user's words and the app's log.
+export interface ReportBody {
+  message: string;
+  log: string;
+  deviceId: string;
+  deviceName: string;
+  os: string;
+  osVersion: string;
+  appVersion: string;
+}
+
+async function call(fetchImpl: Fetch, url: string, init: RequestInit, timeout = timeoutMs): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    res = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeout) });
   } catch {
     throw new ApiError('network', 0);
   }
@@ -68,6 +81,31 @@ export class AppApi {
     });
     if (!isProfile(body)) throw new ApiError('bad_response', 200);
     return body;
+  }
+
+  // POST /report (Manifold 0.20+): the panel files it under the session's account and answers its number.
+  // The JSON is sent gzipped, since a log is large and compresses well.
+  async report(token: string, body: ReportBody): Promise<string | null> {
+    let answer: unknown;
+    try {
+      answer = await call(
+        this.fetchImpl,
+        `${this.base}/report`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'X-HWID': body.deviceId, 'User-Agent': this.userAgent, 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
+          body: new Uint8Array(gzipSync(Buffer.from(JSON.stringify(body)))),
+        },
+        90_000,
+      );
+    } catch (err) {
+      // A panel without the endpoint answers 404 or 405.
+      if (err instanceof ApiError && (err.status === 404 || err.status === 405 || err.status === 501)) throw new ApiError('report_unsupported', err.status);
+      throw err;
+    }
+    const id = (answer as { id?: unknown } | null)?.id;
+    if (typeof answer !== 'object' || answer === null || !('id' in answer || 'ok' in answer)) throw new ApiError('report_unsupported', 200);
+    return typeof id === 'number' || typeof id === 'string' ? String(id) : null;
   }
 
   async logout(token: string, deviceId: string): Promise<void> {

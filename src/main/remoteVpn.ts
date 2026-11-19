@@ -87,6 +87,16 @@ export class RemoteVpn extends EventEmitter {
     }
   }
 
+  // The helper's log; empty when it cannot be reached (or is older than this request).
+  async logs(): Promise<string> {
+    try {
+      const text = await Promise.race([this.call('logs'), new Promise((r) => setTimeout(() => r(''), 5000))]);
+      return typeof text === 'string' ? text : '';
+    } catch {
+      return '';
+    }
+  }
+
   async disconnect(): Promise<Status> {
     try {
       return this.set((await this.call('disconnect')) as Status);

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { l2tpConnectionName, type L2tpAccount } from '../configs/l2tp';
 import { run } from '../system/run';
+import type { LogFn } from '../log';
 import type { SystemKit } from './kit';
 
 export const linuxTun = 'dtconnect0';
@@ -34,13 +35,21 @@ export function nmcliAddArgs(account: L2tpAccount): string[] | null {
 
 // NetworkManager with its l2tp plugin (network-manager-l2tp / NetworkManager-l2tp) does the connecting.
 const l2tp = {
-  async connect(account: L2tpAccount) {
+  async connect(account: L2tpAccount, log?: LogFn) {
     const args = nmcliAddArgs(account);
-    if (!args) return { ok: false };
+    if (!args) {
+      log?.('l2tp', 'the account has a comma or a line break, which NetworkManager cannot take');
+      return { ok: false };
+    }
     await run('nmcli', ['connection', 'delete', 'id', l2tpConnectionName]);
     const added = await run('nmcli', args);
-    if (added.code !== 0) return { ok: false, notice: /l2tp|plugin|vpn-type/i.test(added.stderr) ? 'l2tp_plugin_missing' : undefined };
-    return { ok: (await run('nmcli', ['connection', 'up', 'id', l2tpConnectionName], 90_000)).code === 0 };
+    if (added.code !== 0) {
+      log?.('l2tp', `nmcli add exit ${added.code}: ${added.stderr.trim().slice(0, 600)}`);
+      return { ok: false, notice: /l2tp|plugin|vpn-type/i.test(added.stderr) ? 'l2tp_plugin_missing' : undefined };
+    }
+    const up = await run('nmcli', ['connection', 'up', 'id', l2tpConnectionName], 90_000);
+    log?.('l2tp', `nmcli up exit ${up.code}: ${(up.stdout + up.stderr).replace(/\s+/g, ' ').trim().slice(0, 600)}`);
+    return { ok: up.code === 0 };
   },
   async isUp() {
     return (await run('nmcli', ['-t', '-f', 'NAME', 'connection', 'show', '--active'])).stdout.split('\n').includes(l2tpConnectionName);

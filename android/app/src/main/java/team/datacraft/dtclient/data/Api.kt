@@ -1,9 +1,10 @@
 package team.datacraft.dtclient.data
 
-import android.util.Log
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.util.zip.GZIPOutputStream
 import org.json.JSONObject
 
 // code is the panel's error code (bad_login, device_limit, ...) or network / bad_response.
@@ -38,14 +39,14 @@ object Api {
                 }
             }
         } catch (e: Exception) {
-            Log.w("DtApi", "$method ${url.substringAfterLast('/')}: $e")
+            AppLog.w("DtApi", "$method ${url.substringAfterLast('/')}: $e")
             throw ApiException("network")
         }
         try {
             val status = try {
                 conn.responseCode
             } catch (e: Exception) {
-                Log.w("DtApi", "$method ${url.substringAfterLast('/')}: $e")
+                AppLog.w("DtApi", "$method ${url.substringAfterLast('/')}: $e")
                 throw ApiException("network")
             }
             val stream = if (status in 200..299) conn.inputStream else conn.errorStream
@@ -78,6 +79,48 @@ object Api {
         val json = call("$base/profile", "GET", userAgent, mapOf("Authorization" to "Bearer $token", "X-HWID" to deviceId))
         if (!json.has("account") || !json.has("configs")) throw ApiException("bad_response", 200)
         return Profile.parse(json.toString())
+    }
+
+    // POST /report (Manifold 0.20+): the panel files the log under the session's account and answers its number.
+    // The JSON goes gzipped, since a log is large and compresses well.
+    fun report(base: String, token: String, deviceId: String, userAgent: String, body: JSONObject): String? {
+        val packed = ByteArrayOutputStream().also { out -> GZIPOutputStream(out).use { it.write(body.toString().toByteArray()) } }.toByteArray()
+        val conn = try {
+            (URL("$base/report").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 20_000
+                readTimeout = 90_000
+                doOutput = true
+                setFixedLengthStreamingMode(packed.size)
+                setRequestProperty("User-Agent", userAgent)
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("X-HWID", deviceId)
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Content-Encoding", "gzip")
+                outputStream.use { it.write(packed) }
+            }
+        } catch (e: Exception) {
+            AppLog.w("DtApi", "POST report: $e")
+            throw ApiException("network")
+        }
+        try {
+            val status = try {
+                conn.responseCode
+            } catch (e: Exception) {
+                AppLog.w("DtApi", "POST report: $e")
+                throw ApiException("network")
+            }
+            val text = (if (status in 200..299) conn.inputStream else conn.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
+            val json = runCatching { JSONObject(text) }.getOrNull()
+            // A panel without the endpoint answers 404 or 405, or a page that is not this API's.
+            if (status == 404 || status == 405 || status == 501) throw ApiException("report_unsupported", status)
+            if (status !in 200..299) throw ApiException(json?.optString("error")?.takeIf { it.isNotEmpty() } ?: "bad_response", status)
+            if (json == null || !(json.has("id") || json.has("ok"))) throw ApiException("report_unsupported", status)
+            return json.opt("id")?.takeIf { it != JSONObject.NULL }?.toString()
+        } finally {
+            conn.disconnect()
+        }
     }
 
     fun logout(base: String, token: String, deviceId: String, userAgent: String) {

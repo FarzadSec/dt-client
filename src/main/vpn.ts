@@ -8,10 +8,12 @@ import { candidates, type Candidate } from './candidates';
 import { l2tpAccount } from './configs/l2tp';
 import { openvpnArgs, openvpnProfile, unsafeOpenvpnDirective } from './configs/openvpn';
 import { singboxTunConfig } from './configs/singbox';
-import { dnsServers, xrayConfig } from './configs/xray';
+import { dnsServers, proxyOutboundFor, serverNames, xrayConfig } from './configs/xray';
 import { EngineProcess, waitForLine } from './engines/process';
 import { freePort, probeThroughProxy, waitForPort } from './health';
+import type { LogFn } from './log';
 import type { L2tpDriver, SystemKit } from './os/kit';
+import { resolveNames } from './resolve';
 
 export interface VpnPaths {
   bin: string;
@@ -30,6 +32,13 @@ function writePrivate(file: string, content: string): void {
   fs.writeFileSync(file, content, { mode: 0o600 });
 }
 
+// An engine's output goes to the session log under its name, and its exit is noted there.
+function logged(proc: EngineProcess, log: LogFn): EngineProcess {
+  proc.on('line', (line: string) => log(proc.name, line));
+  proc.on('exit', ({ code, expected }: { code: number | null; expected: boolean }) => log('vpn', `${proc.name} exited (code ${code ?? 'none'}${expected ? ', stopped by the app' : ''})`));
+  return proc;
+}
+
 class XrayConnection implements Connection {
   readonly engine = 'xray' as const;
   private xray: EngineProcess | null = null;
@@ -41,6 +50,7 @@ class XrayConnection implements Connection {
     private readonly settings: Settings,
     private readonly paths: VpnPaths,
     private readonly kit: SystemKit,
+    private readonly log: LogFn,
   ) {}
 
   onLost(cb: (blocking: boolean) => void): void {
@@ -51,14 +61,39 @@ class XrayConnection implements Connection {
     const socksPort = await freePort();
     const httpPort = await freePort();
     const xrayFile = path.join(this.paths.work, 'xray.json');
-    const outbound = this.candidate.config.outbound ?? {};
+    const outbound = proxyOutboundFor(this.candidate.config);
     const dns = dnsServers(this.settings.dns);
-    const cfg = xrayConfig(outbound, { socksPort, httpPort, iranDirect: this.settings.iranDirect, adBlock: this.settings.adBlock, dns });
-    writePrivate(xrayFile, JSON.stringify(cfg, null, 2));
-    const xray = new EngineProcess('xray', path.join(this.paths.bin, this.kit.exe('xray')), ['run', '-c', xrayFile], path.join(this.paths.work, 'xray.log'), this.paths.bin);
-    this.xray = xray;
-    xray.start();
-    if (!(await waitForPort(socksPort, 8000, () => xray.alive)) || !(await probeThroughProxy(httpPort))) {
+    // Resolved now, while the system's resolver still answers outside any tunnel.
+    const names = serverNames(outbound);
+    const hosts = await resolveNames(names);
+    for (const name of names) this.log('vpn', hosts[name] ? `${name} is ${hosts[name].join(', ')}` : `${name} did not resolve; Xray will try it itself`);
+    const options = { socksPort, httpPort, iranDirect: this.settings.iranDirect, adBlock: this.settings.adBlock, dns, hosts };
+    const xrayExe = path.join(this.paths.bin, this.kit.exe('xray'));
+    const startXray = async (logLevel: 'info' | 'warning') => {
+      writePrivate(xrayFile, JSON.stringify(xrayConfig(outbound, { ...options, logLevel }), null, 2));
+      const proc = logged(new EngineProcess('xray', xrayExe, ['run', '-c', xrayFile], path.join(this.paths.work, 'xray.log'), this.paths.bin), this.log);
+      this.xray = proc;
+      proc.start();
+      const ready = await waitForPort(socksPort, 8000, () => proc.alive);
+      if (!ready) this.log('vpn', proc.alive ? 'Xray did not open its local port in 8 s' : 'Xray stopped before it was ready (its error is above)');
+      return ready ? proc : null;
+    };
+    // Tested with Xray's detailed log, which then shows only the test page's connection.
+    if (!(await startXray('info'))) {
+      await this.stop();
+      return false;
+    }
+    const started = Date.now();
+    if (!(await probeThroughProxy(httpPort, 12_000))) {
+      this.log('vpn', `no answer through this config (test page https://www.gstatic.com/generate_204, ${Date.now() - started} ms)`);
+      await this.stop();
+      return false;
+    }
+    this.log('vpn', `the test page answered through it in ${Date.now() - started} ms`);
+    // Run again with the short log before the user's traffic goes through it.
+    await this.xray?.stop();
+    const xray = await startXray('warning');
+    if (!xray) {
       await this.stop();
       return false;
     }
@@ -67,17 +102,15 @@ class XrayConnection implements Connection {
     const bypassApps = this.settings.splitTunneling ? this.settings.splitApps.map((a) => a.name) : [];
     const tunConfig = singboxTunConfig({ os: this.kit.os, interfaceName: this.kit.tunName, socksPort, strictRoute: this.settings.killSwitch, dns: dns[0], bypassApps });
     writePrivate(tunFile, JSON.stringify(tunConfig, null, 2));
-    const tun = new EngineProcess(
-      'sing-box',
-      path.join(this.paths.bin, this.kit.exe('sing-box')),
-      ['run', '-c', tunFile, '-D', this.paths.work],
-      path.join(this.paths.work, 'sing-box.log'),
-      this.paths.bin,
+    const tun = logged(
+      new EngineProcess('sing-box', path.join(this.paths.bin, this.kit.exe('sing-box')), ['run', '-c', tunFile, '-D', this.paths.work], path.join(this.paths.work, 'sing-box.log'), this.paths.bin),
+      this.log,
     );
     this.tun = tun;
     tun.start();
     await new Promise((r) => setTimeout(r, 2500));
     if (!tun.alive) {
+      this.log('vpn', 'the system tunnel (sing-box) stopped while starting (its error is above)');
       await this.stop();
       return false;
     }
@@ -113,6 +146,7 @@ class OpenvpnConnection implements Connection {
     private readonly settings: Settings,
     private readonly paths: VpnPaths,
     private readonly kit: SystemKit,
+    private readonly log: LogFn,
   ) {}
 
   onLost(cb: (blocking: boolean) => void): void {
@@ -122,24 +156,62 @@ class OpenvpnConnection implements Connection {
   async start(): Promise<boolean> {
     const exe = this.kit.openvpnBinary(this.paths.bin);
     if (!exe) throw new Error('engine_missing:openvpn');
-    const profile = openvpnProfile(this.candidate.config.link);
-    if (unsafeOpenvpnDirective(profile)) return false;
-    const profileFile = path.join(this.paths.work, 'profile.ovpn');
-    writePrivate(profileFile, profile);
-    this.managementPort = await freePort();
-    const proc = new EngineProcess('openvpn', exe, openvpnArgs(profileFile, this.managementPort, this.kit.os), path.join(this.paths.work, 'openvpn.log'), path.dirname(exe));
-    this.proc = proc;
-    proc.start();
-    const up = await waitForLine(proc, /Initialization Sequence Completed/, /AUTH_FAILED|Exiting due to fatal error|All TAP-Windows adapters/, 45_000);
-    if (!up) {
-      await this.stop();
+    let profile: string;
+    try {
+      profile = openvpnProfile(this.candidate.config.link);
+    } catch {
+      this.log('vpn', 'this OpenVPN link carries no profile');
       return false;
     }
+    const unsafe = unsafeOpenvpnDirective(profile);
+    if (unsafe) {
+      this.log('vpn', `the profile has '${unsafe}', which the app does not run`);
+      return false;
+    }
+    const profileFile = path.join(this.paths.work, 'profile.ovpn');
+    writePrivate(profileFile, profile);
+    // Windows: OpenVPN only opens an adapter that already exists, so the app makes its own first.
+    const dco = (await this.kit.openvpnPrepare?.(this.paths.bin, this.log)) ?? false;
+    let up = await this.run(exe, profileFile, false);
+    // Data Channel Offload refuses some servers' settings; TAP takes any.
+    if (!up.ok && dco && up.dcoTrouble && !up.authFailed) {
+      this.log('vpn', 'trying again without Data Channel Offload (TAP adapter)');
+      up = await this.run(exe, profileFile, true);
+    }
+    if (!up.ok) return false;
     await this.kit.openvpnUp(dnsServers(this.settings.dns));
-    proc.on('exit', ({ expected }: { expected: boolean }) => {
+    this.proc?.on('exit', ({ expected }: { expected: boolean }) => {
       if (!expected) this.lost?.(false);
     });
     return true;
+  }
+
+  private async run(exe: string, profileFile: string, disableDco: boolean): Promise<{ ok: boolean; dcoTrouble: boolean; authFailed: boolean }> {
+    this.managementPort = await freePort();
+    const proc = logged(
+      new EngineProcess('openvpn', exe, openvpnArgs(profileFile, this.managementPort, this.kit.os, { disableDco }), path.join(this.paths.work, 'openvpn.log'), path.dirname(exe)),
+      this.log,
+    );
+    this.proc = proc;
+    let dcoTrouble = false;
+    let authFailed = false;
+    let fatal = false;
+    const watch = (line: string) => {
+      if (/dco|data channel offload/i.test(line) && /error|fail|not supported|unable|cannot|disabl/i.test(line)) dcoTrouble = true;
+      if (/AUTH_FAILED/.test(line)) authFailed = true;
+      if (/Exiting due to fatal error|There are no TAP-Windows|currently in use or disabled/.test(line)) fatal = true;
+    };
+    proc.on('line', watch);
+    proc.start();
+    const ok = await waitForLine(proc, /Initialization Sequence Completed/, /AUTH_FAILED|Exiting due to fatal error|There are no TAP-Windows|adapters on this system are currently in use or disabled/, 45_000);
+    proc.off('line', watch);
+    if (!ok) {
+      fatal = fatal || !proc.alive;
+      this.log('vpn', authFailed ? 'the server refused the login (AUTH_FAILED)' : fatal ? 'OpenVPN stopped with an error (above)' : 'OpenVPN did not finish connecting in 45 s');
+      await this.stop();
+    }
+    // A timeout is the network's doing; an error at start may be the adapter's.
+    return { ok, dcoTrouble: dcoTrouble || fatal, authFailed };
   }
 
   async stop(): Promise<void> {
@@ -165,6 +237,7 @@ class L2tpConnection implements Connection {
   constructor(
     private readonly candidate: Candidate,
     private readonly driver: L2tpDriver,
+    private readonly log: LogFn,
   ) {}
 
   onLost(cb: (blocking: boolean) => void): void {
@@ -172,9 +245,20 @@ class L2tpConnection implements Connection {
   }
 
   async start(): Promise<boolean> {
-    const result = await this.driver.connect(l2tpAccount(this.candidate.config.link));
+    let account;
+    try {
+      account = l2tpAccount(this.candidate.config.link);
+    } catch {
+      this.log('vpn', 'this L2TP link carries no account');
+      return false;
+    }
+    this.log('vpn', `L2TP to ${account.host} as ${account.username}`);
+    const result = await this.driver.connect(account, this.log);
     this.notice = result.notice;
-    if (!result.ok) return false;
+    if (!result.ok) {
+      this.log('vpn', `L2TP did not connect${result.notice ? ` (${result.notice})` : ''}`);
+      return false;
+    }
     this.watch = setInterval(async () => {
       if (!(await this.driver.isUp())) {
         this.clearWatch();
@@ -204,6 +288,7 @@ export class Vpn extends EventEmitter {
   constructor(
     private readonly paths: VpnPaths,
     private readonly kit: SystemKit,
+    private readonly log: LogFn = () => undefined,
   ) {
     super();
     fs.mkdirSync(paths.work, { recursive: true });
@@ -222,24 +307,32 @@ export class Vpn extends EventEmitter {
   async connect(profile: AppProfile, settings: Settings, locationId: number | null, latency?: Map<string, number | null>): Promise<Status> {
     if (this.current.state !== 'disconnected' || this.current.blocking) await this.disconnect();
     const list = candidates(profile, locationId, settings.protocol, latency);
+    this.log('vpn', `connect to ${locationId === null ? 'the fastest location' : `location ${locationId}`}, protocol ${settings.protocol}: ${list.length} config(s) to try`);
     if (list.length === 0) return this.set({ state: 'disconnected', error: 'no_config' });
     this.set({ state: 'connecting', locationId });
 
     let notice: string | undefined;
-    for (const candidate of list) {
+    for (const [i, candidate] of list.entries()) {
       if (this.current.state !== 'connecting') return this.current;
       const serverId = candidate.config.locationId ?? null;
       this.set({ state: 'connecting', locationId, serverId, configName: candidate.config.name, protocol: candidate.config.protocol });
+      this.log('vpn', `(${i + 1}/${list.length}) trying ${candidate.config.protocol} "${candidate.config.name}" of location ${serverId ?? '-'}`);
       const connection = this.connectionFor(candidate, settings);
-      if (!connection) continue;
+      if (!connection) {
+        this.log('vpn', 'this system cannot run it');
+        continue;
+      }
       let ok = false;
+      const started = Date.now();
       try {
         ok = await connection.start();
       } catch (err) {
+        this.log('vpn', `failed: ${err instanceof Error ? err.message : String(err)}`);
         if (String(err).includes('engine_missing:openvpn') && this.kit.os !== 'windows') notice = this.kit.os === 'macos' ? 'openvpn_missing_mac' : 'openvpn_missing';
         else if (String(err).includes('engine_missing')) notice = 'engine_missing';
       }
       if (connection instanceof L2tpConnection && connection.notice) notice = connection.notice;
+      this.log('vpn', ok ? `connected in ${Date.now() - started} ms` : `did not connect (${Date.now() - started} ms)`);
       if (!ok) continue;
       if (this.current.state !== 'connecting') {
         await connection.stop();
@@ -258,17 +351,18 @@ export class Vpn extends EventEmitter {
         notice,
       });
     }
+    this.log('vpn', 'no config connected');
     return this.set({ state: 'disconnected', error: 'all_failed', notice });
   }
 
   private connectionFor(candidate: Candidate, settings: Settings): Connection | null {
     switch (candidate.engine) {
       case 'xray':
-        return new XrayConnection(candidate, settings, this.paths, this.kit);
+        return new XrayConnection(candidate, settings, this.paths, this.kit, this.log);
       case 'openvpn':
-        return new OpenvpnConnection(candidate, settings, this.paths, this.kit);
+        return new OpenvpnConnection(candidate, settings, this.paths, this.kit, this.log);
       default:
-        return this.kit.l2tp ? new L2tpConnection(candidate, this.kit.l2tp) : null;
+        return this.kit.l2tp ? new L2tpConnection(candidate, this.kit.l2tp, this.log) : null;
     }
   }
 
@@ -287,6 +381,7 @@ export class Vpn extends EventEmitter {
 
   private async dropped(blocking: boolean): Promise<void> {
     const previous = this.current;
+    this.log('vpn', blocking ? 'the connection dropped; the kill switch holds traffic back' : 'the connection dropped');
     if (!blocking) {
       this.connection = null;
       await this.restorePrivacy();
@@ -296,6 +391,7 @@ export class Vpn extends EventEmitter {
 
   async disconnect(): Promise<Status> {
     const locationId = this.current.locationId;
+    if (this.connection || this.current.state !== 'disconnected') this.log('vpn', 'disconnecting');
     this.set({ state: 'disconnecting', locationId });
     const connection = this.connection;
     this.connection = null;
