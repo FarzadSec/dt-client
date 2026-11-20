@@ -229,23 +229,22 @@ jobs:
         run: |
           npx electron-builder --mac --x64 --publish never
           npx electron-builder --mac --arm64 --publish never
-      # Double-clicking a package installs it in a domain the package allows. 1.1.1 allowed only the
-      # user's home folder, where the helper (a root LaunchDaemon) cannot be set up.
+      # Double-clicking a package (Installer.app) offers only the domains the package allows; 1.1.1
+      # allowed only the user's home folder, where the helper (a root LaunchDaemon) cannot be set up.
+      # The command-line installer ignores the domains, so a home install from it must fail in postinstall.
       - name: Check the packages install only system-wide
         run: |
           for pkg in release/*.pkg; do
             rm -rf /tmp/pkg-expanded && pkgutil --expand "$pkg" /tmp/pkg-expanded
             grep -o '<domains[^>]*>' /tmp/pkg-expanded/Distribution
-            grep -q 'enable_localSystem="true"' /tmp/pkg-expanded/Distribution
-            grep -q 'enable_currentUserHome="false"' /tmp/pkg-expanded/Distribution
-            grep -q 'enable_anywhere="false"' /tmp/pkg-expanded/Distribution
-            installer -pkg "$pkg" -dominfo
+            test "$(installer -pkg "$pkg" -dominfo)" = LocalSystem
           done
           if installer -pkg release/DT-Connect-*-mac-arm64.pkg -target CurrentUserHomeDirectory; then
-            echo "The package installed into the home folder" >&2
+            echo "A home-folder install succeeded" >&2
             exit 1
           fi
-          test ! -e "$HOME/Applications/DT Connect.app"
+          # Its files stay behind (Installer does not roll back); the system install below removes them.
+          ls -d "$HOME/Applications/DT Connect.app" || true
       - name: Install the Apple silicon package, check the helper answers
         run: |
           sudo installer -pkg release/DT-Connect-*-mac-arm64.pkg -target /
@@ -254,6 +253,8 @@ jobs:
           sleep 3
           sudo launchctl print system/team.datacraft.dtclient.helper | head -20
           node scripts/helper-hello.mjs /var/run/dt-connect.sock
+          echo "console user: $(stat -f %Su /dev/console)"
+          if [ -e "$HOME/Applications/DT Connect.app" ]; then echo "home-folder copy still there"; rm -rf "$HOME/Applications/DT Connect.app"; else echo "home-folder copy removed by postinstall"; fi
           sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"
           test ! -e "/Applications/DT Connect.app"
       - uses: actions/upload-artifact@v4
