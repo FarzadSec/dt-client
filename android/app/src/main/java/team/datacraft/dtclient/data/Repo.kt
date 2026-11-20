@@ -247,6 +247,14 @@ object Repo {
         signOut("")
     }
 
+    // Tells the panel this device left a connection (Api.disconnected); best effort, on the caller's thread.
+    fun tellPanelLeft(protocol: String, locationId: Int?, address: String?) {
+        val subLink = prefs.getString("subLink", null) ?: return
+        val token = prefs.getString("token", null) ?: return
+        runCatching { Api.disconnected(Api.base(subLink), token, deviceId(), userAgent, protocol, locationId, address) }
+            .onFailure { AppLog.w("DtRepo", "telling the panel this device left failed: $it") }
+    }
+
     fun lastSubLink(): String = prefs.getString("subLink", "") ?: ""
     fun lastUsername(): String = prefs.getString("username", "") ?: ""
 

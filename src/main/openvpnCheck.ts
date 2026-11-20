@@ -41,6 +41,11 @@ function startServer(tc: string): ChildProcess {
   return server;
 }
 
+// Sessions the server has closed, from its management port. OpenVPN 2.6 closes a session five seconds
+// after its exit notification; without one it waits for its own timeout, 20 s here. One closed within
+// 9 s of the app's disconnect proves the notification arrived.
+let closedSessions = 0;
+
 // Manifold checks the login through the management port; this one lets everyone in.
 function approveClients(): void {
   const attempt = () => {
@@ -54,6 +59,7 @@ function approveClients(): void {
         buffered = buffered.slice(at + 1);
         const m = /^>CLIENT:(?:CONNECT|REAUTH),(\d+),(\d+)/.exec(line);
         if (m) socket.write(`client-auth-nt ${m[1]} ${m[2]}\n`);
+        if (/^>CLIENT:DISCONNECT,/.test(line)) closedSessions++;
       }
     });
     socket.on('error', () => setTimeout(attempt, 500));
@@ -94,7 +100,16 @@ async function connectOnce(label: string, text: string): Promise<boolean> {
   }
   log(label, `${ok ? 'PASS' : 'FAIL'}: ${status.state}${status.error ? ` (${status.error})` : ''}; ${opened ?? 'no adapter opened'}`);
   if (label === 'dco' && ok && !/ovpn-dco/i.test(opened ?? '')) console.log('::warning::OpenVPN fell back from ovpn-dco to TAP on this Windows');
+  const closedBefore = closedSessions;
+  const started = Date.now();
   await vpn.disconnect();
+  if (ok) {
+    const deadline = started + 9000;
+    while (closedSessions === closedBefore && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    const left = closedSessions > closedBefore;
+    log(label, `${left ? 'PASS' : 'FAIL'}: ${left ? `the server closed the session ${Date.now() - started} ms after the disconnect` : 'the server still held the session 9 s after the disconnect (no exit notification)'}`);
+    ok = left;
+  }
   return ok;
 }
 

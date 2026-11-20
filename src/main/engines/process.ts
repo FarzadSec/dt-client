@@ -46,6 +46,29 @@ export class EngineProcess extends EventEmitter {
     return this.child !== null;
   }
 
+  // The app is about to make the program end itself (OpenVPN's SIGTERM over its management port), so
+  // its exit is the app's doing and not a dropped connection.
+  expectExit(): void {
+    if (this.child) this.stopping = true;
+  }
+
+  // Resolves true once the program has exited, false when it is still running after timeoutMs.
+  exited(timeoutMs: number): Promise<boolean> {
+    const child = this.child;
+    if (!child) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        child.off('exit', done);
+        resolve(false);
+      }, timeoutMs);
+      child.once('exit', done);
+    });
+  }
+
   async stop(timeoutMs = 5000): Promise<void> {
     const child = this.child;
     if (!child) return;

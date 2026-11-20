@@ -23,12 +23,12 @@ object Api {
         return "$scheme://${uri.rawAuthority}$path/app/v1"
     }
 
-    private fun call(url: String, method: String, userAgent: String, headers: Map<String, String> = emptyMap(), body: String? = null): JSONObject {
+    private fun call(url: String, method: String, userAgent: String, headers: Map<String, String> = emptyMap(), body: String? = null, timeoutMs: Int = 15_000): JSONObject {
         val conn = try {
             (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = method
-                connectTimeout = 15_000
-                readTimeout = 15_000
+                connectTimeout = timeoutMs
+                readTimeout = timeoutMs
                 setRequestProperty("User-Agent", userAgent)
                 setRequestProperty("Accept", "application/json")
                 headers.forEach { (k, v) -> setRequestProperty(k, v) }
@@ -120,6 +120,21 @@ object Api {
             return json.opt("id")?.takeIf { it != JSONObject.NULL }?.toString()
         } finally {
             conn.disconnect()
+        }
+    }
+
+    // POST /disconnected: this device has left the protocol it used at that location. WireGuard tells the
+    // server nothing when a peer goes, so without this the panel holds the account's seat until the peer
+    // has been quiet for a while. OpenVPN's goodbye takes the server five seconds, so its tunnel address
+    // goes along: it names the session among an account's several, for the panel to close it.
+    // A panel without the endpoint answers 404 or 405, which is fine.
+    fun disconnected(base: String, token: String, deviceId: String, userAgent: String, protocol: String, locationId: Int?, address: String?) {
+        val body = JSONObject().put("protocol", protocol).put("locationId", locationId ?: JSONObject.NULL)
+        if (address != null) body.put("address", address)
+        try {
+            call("$base/disconnected", "POST", userAgent, mapOf("Authorization" to "Bearer $token", "X-HWID" to deviceId), body.toString(), timeoutMs = 5_000)
+        } catch (e: ApiException) {
+            if (e.status != 404 && e.status != 405 && e.status != 501) throw e
         }
     }
 
