@@ -167,25 +167,22 @@ for (const variant of ['win10', 'win11']) {
 versions.push('ovpn-dco-win 2.8.7');
 
 // WireGuard for Windows: the app runs WireGuard through its tunnel service, the official engine
-// (src/main/wireguardWindows.ts). The amd64 MSI named in the list of latest versions, checked
-// against that list's digest; wireguard.exe and wg.exe must carry WireGuard LLC's valid signature.
+// (src/main/wireguardWindows.ts). The amd64 MSI named in the list of latest versions (whose digests are
+// BLAKE2b-256); the MSI, wireguard.exe and wg.exe must each carry WireGuard LLC's valid signature.
 const wgBase = 'https://download.wireguard.com/windows-client/';
-const wgList = await (await fetch(`${wgBase}latest.sig`, { headers: { 'User-Agent': 'dt-connect-build' } })).text();
-let wgEntry = /([0-9a-f]{64})\s+:?\s*(wireguard-amd64-([0-9.]+)\.msi)/i.exec(wgList);
-let wgMsi;
-if (wgEntry) {
-  wgMsi = await pinned(`${wgBase}${wgEntry[2]}`, wgEntry[1].toLowerCase(), path.join(tmp, 'wireguard.msi'));
-} else {
-  // The list's layout changed: the newest MSI on the page, vouched for by the signature check below.
-  console.log(`WireGuard: no amd64 MSI in latest.sig, reading the download page:\n${wgList}`);
-  const page = await (await fetch(wgBase, { headers: { 'User-Agent': 'dt-connect-build' } })).text();
-  const newest = [...page.matchAll(/wireguard-amd64-([0-9.]+)\.msi/g)]
-    .map((m) => m[1])
-    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
-  if (!newest) throw new Error('WireGuard: no amd64 MSI found');
-  wgEntry = [null, null, `wireguard-amd64-${newest}.msi`, newest];
-  wgMsi = await download(`${wgBase}${wgEntry[2]}`, path.join(tmp, 'wireguard.msi'));
+function wgSigned(file) {
+  const sig = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${file}'; "$($s.Status)|$($s.SignerCertificate.Subject)"`], { encoding: 'utf8' }).trim();
+  if (!/^Valid\|.*WireGuard LLC/i.test(sig)) throw new Error(`${path.basename(file)}: signature ${sig}`);
 }
+let wgName = /wireguard-amd64-([0-9.]+)\.msi/.exec(await (await fetch(`${wgBase}latest.sig`, { headers: { 'User-Agent': 'dt-connect-build' } })).text());
+if (!wgName) {
+  const page = await (await fetch(wgBase, { headers: { 'User-Agent': 'dt-connect-build' } })).text();
+  const newest = [...page.matchAll(/wireguard-amd64-([0-9.]+)\.msi/g)].map((m) => m[1]).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+  if (!newest) throw new Error('WireGuard: no amd64 MSI found');
+  wgName = [`wireguard-amd64-${newest}.msi`, newest];
+}
+const wgMsi = await download(`${wgBase}${wgName[0]}`, path.join(tmp, 'wireguard.msi'));
+wgSigned(wgMsi);
 const wgDir = path.join(tmp, 'wireguard');
 execFileSync('msiexec.exe', ['/a', wgMsi, '/qn', `TARGETDIR=${wgDir}`], { stdio: 'inherit' });
 fs.mkdirSync(path.join(bin, 'wireguard'), { recursive: true });
@@ -194,10 +191,9 @@ for (const f of ['wireguard.exe', 'wg.exe']) {
   if (!found) throw new Error(`${f} not found in the WireGuard MSI`);
   const dest = path.join(bin, 'wireguard', f);
   fs.copyFileSync(found, dest);
-  const sig = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${dest}'; "$($s.Status)|$($s.SignerCertificate.Subject)"`], { encoding: 'utf8' }).trim();
-  if (!/^Valid\|.*WireGuard LLC/i.test(sig)) throw new Error(`${f}: signature ${sig}`);
+  wgSigned(dest);
 }
-versions.push(`wireguard-windows ${wgEntry[3]}`);
+versions.push(`wireguard-windows ${wgName[1]}`);
 
 fs.writeFileSync(path.join(bin, 'VERSIONS.txt'), versions.join('\n') + '\n');
 console.log(versions.join('\n'));
