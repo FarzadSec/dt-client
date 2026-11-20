@@ -257,6 +257,13 @@ jobs:
           if [ -e "$HOME/Applications/DT Connect.app" ]; then echo "home-folder copy still there"; rm -rf "$HOME/Applications/DT Connect.app"; else echo "home-folder copy removed by postinstall"; fi
           sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"
           test ! -e "/Applications/DT Connect.app"
+      - name: Installer and helper logs
+        if: failure()
+        run: |
+          sudo grep -E 'postinstall|preinstall|DT Connect|dtclient' /var/log/install.log | tail -80 || true
+          sudo cat "/Library/Application Support/DT Connect/helper.log" || true
+          sudo launchctl print system/team.datacraft.dtclient.helper || true
+          ls -la /var/run/dt-connect.sock "/Applications/DT Connect.app" "$HOME/Applications" || true
       - uses: actions/upload-artifact@v4
         with:
           name: DT-Connect-macOS
