@@ -499,7 +499,7 @@ app.whenReady().then(async () => {
   if (system === 'windows') {
     vpn = new Vpn({ bin: binDir, work: path.join(app.getPath('userData'), 'run') }, windowsKit, log);
   } else {
-    const remote = new RemoteVpn(helperSocket[system]);
+    const remote = new RemoteVpn(helperSocket[system], system === 'macos' ? 'helper_unreachable_macos' : 'helper_unreachable');
     vpn = remote;
     void remote.sync();
   }
