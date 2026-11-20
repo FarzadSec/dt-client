@@ -1,3 +1,9 @@
+**DT Connect 1.1.2**
+
+- **macOS: Connect works after installing the package.** 1.1.1's package could only install into the user's own Applications folder, without administrator rights, so the helper that runs the VPN never got set up and every connection ended with "the DT Connect service is not running". The package now installs for all users (it asks for the Mac's password), sets up the helper and fails the installation if the helper does not start, instead of reporting success. It removes the 1.1.1 copy left in the user's Applications folder. Customers on 1.1.1 only need to install 1.1.2 over it.
+- On macOS that message now gives the Mac's own command (`launchctl`), not Linux's `systemctl`.
+- On Linux and macOS, an error from a running helper is shown as such, no longer as "the service is not running".
+
 **DT Connect 1.1.1**
 
 - **Disconnecting OpenVPN now ends the session on the server too.** Over UDP the app sends OpenVPN's exit notification and lets OpenVPN finish, where it used to stop it at once (on Windows by ending the process). The server lets go of the session within about five seconds instead of holding it, and the account's device slot, for up to two minutes, so switching to another location or protocol right after a disconnect works.

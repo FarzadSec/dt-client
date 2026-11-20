@@ -165,6 +165,8 @@ const en = {
   'notice.openvpn_missing': 'OpenVPN is not installed. Install the openvpn package of your system.',
   'notice.openvpn_missing_mac': 'OpenVPN is not installed. Install it with Homebrew: brew install openvpn',
   'error.helper_unreachable': 'The DT Connect service is not running. Reinstall DT Connect, or start it with: sudo systemctl start dt-connect-helper',
+  'error.helper_unreachable_macos': "The DT Connect service is not running. Install DT Connect again (it asks for your Mac's password), or start it in Terminal with: sudo launchctl kickstart -k system/team.datacraft.dtclient.helper",
+  'error.helper_error': 'The DT Connect service could not start the connection. Send a report from Settings → Support.',
 };
 
 type Key = keyof typeof en;
@@ -334,6 +336,8 @@ const fa: Record<Key, string> = {
   'notice.openvpn_missing': 'OpenVPN نصب نیست. بسته openvpn سیستم خود را نصب کنید.',
   'notice.openvpn_missing_mac': 'OpenVPN نصب نیست. آن را با Homebrew نصب کنید: brew install openvpn',
   'error.helper_unreachable': 'سرویس DT Connect اجرا نیست. برنامه را دوباره نصب کنید یا با این دستور اجرایش کنید: sudo systemctl start dt-connect-helper',
+  'error.helper_unreachable_macos': 'سرویس DT Connect اجرا نیست. برنامه را دوباره نصب کنید (رمز مک را می‌پرسد) یا در Terminal با این دستور اجرایش کنید: sudo launchctl kickstart -k system/team.datacraft.dtclient.helper',
+  'error.helper_error': 'سرویس DT Connect نتوانست اتصال را شروع کند. از تنظیمات ← پشتیبانی گزارش بفرستید.',
 };
 
 const dictionaries: Record<Language, Record<Key, string>> = { en, fa };
