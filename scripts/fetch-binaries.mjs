@@ -171,7 +171,10 @@ versions.push('ovpn-dco-win 2.8.7');
 // BLAKE2b-256); the MSI, wireguard.exe and wg.exe must each carry WireGuard LLC's valid signature.
 const wgBase = 'https://download.wireguard.com/windows-client/';
 function wgSigned(file) {
-  const sig = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${file}'; "$($s.Status)|$($s.SignerCertificate.Subject)"`], { encoding: 'utf8' }).trim();
+  // Windows PowerShell with its own module path: a PowerShell 7 step's would hide its security module.
+  const env = { ...process.env };
+  delete env.PSModulePath;
+  const sig = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${file}'; "$($s.Status)|$($s.SignerCertificate.Subject)"`], { encoding: 'utf8', env }).trim();
   if (!/^Valid\|.*WireGuard LLC/i.test(sig)) throw new Error(`${path.basename(file)}: signature ${sig}`);
 }
 let wgName = /wireguard-amd64-([0-9.]+)\.msi/.exec(await (await fetch(`${wgBase}latest.sig`, { headers: { 'User-Agent': 'dt-connect-build' } })).text());
