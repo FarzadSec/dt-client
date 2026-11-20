@@ -1,3 +1,9 @@
+**DT Connect 1.1.2**
+
+- **WireGuard on Windows now runs on the official WireGuard engine**, the tunnel service and WireGuardNT driver of WireGuard for Windows, which ship with the app. A config that works in the official WireGuard app now works in DT Connect too. Kill switch, Iran direct and the DNS setting apply to it; per-app split tunnelling does not cover WireGuard on Windows.
+- Disconnecting, or connecting again, while a connection is still being tested now stops that test at once. Before, the earlier attempt kept running and could mark the new one as failed.
+- After a WireGuard attempt that fails, the app tells the panel the device left, so a limited account's slot is free at once.
+
 **DT Connect 1.1.1**
 
 - **Disconnecting OpenVPN now ends the session on the server too.** Over UDP the app sends OpenVPN's exit notification and lets OpenVPN finish, where it used to stop it at once (on Windows by ending the process). The server lets go of the session within about five seconds instead of holding it, and the account's device slot, for up to two minutes, so switching to another location or protocol right after a disconnect works.

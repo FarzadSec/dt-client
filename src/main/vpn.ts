@@ -14,13 +14,14 @@ import { freePort, probeThroughProxy, waitForPort } from './health';
 import type { LogFn } from './log';
 import type { L2tpDriver, SystemKit } from './os/kit';
 import { resolveNames } from './resolve';
+import { removeTunnel, WireguardWindowsConnection, wireguardTools } from './wireguardWindows';
 
 export interface VpnPaths {
   bin: string;
   work: string;
 }
 
-interface Connection {
+export interface Connection {
   readonly engine: Engine;
   // The tunnel address the server gave this device, where the engine reports one (OpenVPN).
   readonly address?: string;
@@ -296,6 +297,10 @@ class L2tpConnection implements Connection {
 export class Vpn extends EventEmitter {
   private current: Status = { state: 'disconnected' };
   private connection: Connection | null = null;
+  // The connection being started, so a disconnect can stop it, and the attempt it belongs to:
+  // a newer connect or a disconnect ends an attempt, which then leaves the status alone.
+  private pending: Connection | null = null;
+  private attempt = 0;
   private zoneBackup: string | null = null;
   private webrtcBackup: Record<string, string | null> = {};
 
@@ -306,6 +311,9 @@ export class Vpn extends EventEmitter {
   ) {
     super();
     fs.mkdirSync(paths.work, { recursive: true });
+    // A WireGuard tunnel left by a run that ended without disconnecting (a crash, a power cut).
+    const tools = kit.os === 'windows' ? wireguardTools(paths.bin) : null;
+    if (tools) void removeTunnel(tools, log);
   }
 
   status(): Status {
@@ -319,7 +327,8 @@ export class Vpn extends EventEmitter {
   }
 
   async connect(profile: AppProfile, settings: Settings, locationId: number | null, latency?: Map<string, number | null>): Promise<Status> {
-    if (this.current.state !== 'disconnected' || this.current.blocking) await this.disconnect();
+    if (this.current.state !== 'disconnected' || this.current.blocking || this.pending) await this.disconnect();
+    const attempt = ++this.attempt;
     const list = candidates(profile, locationId, settings.protocol, latency);
     this.log('vpn', `connect to ${locationId === null ? 'the fastest location' : `location ${locationId}`}, protocol ${settings.protocol}: ${list.length} config(s) to try`);
     if (list.length === 0) return this.set({ state: 'disconnected', error: 'no_config' });
@@ -327,7 +336,7 @@ export class Vpn extends EventEmitter {
 
     let notice: string | undefined;
     for (const [i, candidate] of list.entries()) {
-      if (this.current.state !== 'connecting') return this.current;
+      if (attempt !== this.attempt) return this.current;
       const serverId = candidate.config.locationId ?? null;
       this.set({ state: 'connecting', locationId, serverId, configName: candidate.config.name, protocol: candidate.config.protocol });
       this.log('vpn', `(${i + 1}/${list.length}) trying ${candidate.config.protocol} "${candidate.config.name}" of location ${serverId ?? '-'}`);
@@ -338,6 +347,7 @@ export class Vpn extends EventEmitter {
       }
       let ok = false;
       const started = Date.now();
+      this.pending = connection;
       try {
         ok = await connection.start();
       } catch (err) {
@@ -345,10 +355,16 @@ export class Vpn extends EventEmitter {
         if (String(err).includes('engine_missing:openvpn') && this.kit.os !== 'windows') notice = this.kit.os === 'macos' ? 'openvpn_missing_mac' : 'openvpn_missing';
         else if (String(err).includes('engine_missing')) notice = 'engine_missing';
       }
+      if (this.pending === connection) this.pending = null;
       if (connection instanceof L2tpConnection && connection.notice) notice = connection.notice;
       this.log('vpn', ok ? `connected in ${Date.now() - started} ms` : `did not connect (${Date.now() - started} ms)`);
-      if (!ok) continue;
-      if (this.current.state !== 'connecting') {
+      if (!ok) {
+        // A WireGuard try reaches the server even when it fails, and the panel counts the account's
+        // seat until the peer has been quiet a while: it is told the device left at once.
+        if (candidate.config.protocol === 'wireguard') this.emit('attemptFailed', { protocol: 'wireguard', locationId: serverId });
+        continue;
+      }
+      if (attempt !== this.attempt) {
         await connection.stop();
         return this.current;
       }
@@ -366,6 +382,7 @@ export class Vpn extends EventEmitter {
         notice,
       });
     }
+    if (attempt !== this.attempt) return this.current;
     this.log('vpn', 'no config connected');
     return this.set({ state: 'disconnected', error: 'all_failed', notice });
   }
@@ -373,6 +390,12 @@ export class Vpn extends EventEmitter {
   private connectionFor(candidate: Candidate, settings: Settings): Connection | null {
     switch (candidate.engine) {
       case 'xray':
+        // Windows runs WireGuard on the official engine; Xray's own WireGuard stays the fallback.
+        if (candidate.config.protocol === 'wireguard' && this.kit.os === 'windows') {
+          const tools = wireguardTools(this.paths.bin);
+          if (tools) return new WireguardWindowsConnection(candidate, settings, tools, this.paths.bin, this.paths.work, this.log);
+          this.log('vpn', 'the WireGuard engine is missing from the app; trying Xray\'s WireGuard');
+        }
         return new XrayConnection(candidate, settings, this.paths, this.kit, this.log);
       case 'openvpn':
         return new OpenvpnConnection(candidate, settings, this.paths, this.kit, this.log);
@@ -406,11 +429,15 @@ export class Vpn extends EventEmitter {
 
   async disconnect(): Promise<Status> {
     const locationId = this.current.locationId;
-    if (this.connection || this.current.state !== 'disconnected') this.log('vpn', 'disconnecting');
+    if (this.connection || this.pending || this.current.state !== 'disconnected') this.log('vpn', 'disconnecting');
+    // Ends the attempt in progress too: its engine stops now instead of finishing its test.
+    this.attempt++;
     this.set({ state: 'disconnecting', locationId });
     const connection = this.connection;
+    const pending = this.pending;
     this.connection = null;
-    await connection?.stop();
+    this.pending = null;
+    await Promise.all([connection?.stop(), pending?.stop()]);
     await this.restorePrivacy();
     return this.set({ state: 'disconnected', locationId });
   }

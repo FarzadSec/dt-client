@@ -35,6 +35,38 @@ export async function waitForPort(port: number, timeoutMs: number, alive: () => 
   return false;
 }
 
+// Fetches the same empty page with the system's own routes and resolver, for a tunnel that carries
+// the whole system (WireGuard's tunnel service). Tries again until the deadline, since routes and
+// DNS settle a moment after the tunnel comes up.
+export async function probeDirect(timeoutMs = 10_000, host = 'www.gstatic.com'): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const left = deadline - Date.now();
+    const ok = await new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (result: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        secure.destroy();
+        resolve(result);
+      };
+      const timer = setTimeout(() => finish(false), left);
+      const secure = tls.connect({ host, port: 443, servername: host });
+      secure.once('error', () => finish(false));
+      secure.once('secureConnect', () => secure.write(`GET /generate_204 HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`));
+      let reply = '';
+      secure.on('data', (d: Buffer) => {
+        reply += d.toString('latin1');
+        if (reply.includes('\r\n')) finish(/^HTTP\/1\.[01] 204/.test(reply));
+      });
+    });
+    if (ok) return true;
+    if (deadline - Date.now() > 500) await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
 // Fetches an empty page through the HTTP proxy inbound: the config works only if this answers.
 export function probeThroughProxy(httpPort: number, timeoutMs = 10_000, host = 'www.gstatic.com'): Promise<boolean> {
   return new Promise((resolve) => {

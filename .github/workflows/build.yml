@@ -117,6 +117,14 @@ jobs:
             openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 2 -extfile ext.cnf -out server.crt
           )
           node dist/openvpn-check.js release/win-unpacked/resources "$(cygpath -w "$d")"
+      # WireGuard's tunnel service from the package, with the config the app writes (Iran direct's full list).
+      - name: Run WireGuard's tunnel service the way the app does
+        shell: pwsh
+        run: |
+          $res = 'release\win-unpacked\resources'
+          Get-Content "$res\bin\VERSIONS.txt"
+          node dist/wireguard-check.js $res
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: DT-Connect-Windows
