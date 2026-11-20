@@ -10,6 +10,7 @@ DT Connect is © DataCraft. Its installers also carry the open-source programs b
 | OpenVPN | OpenVPN connections (Windows and Android builds) | GPL-2.0 with the OpenSSL linking exception | https://github.com/OpenVPN/openvpn |
 | TAP-Windows6 | OpenVPN's adapter on Windows | GPL-2.0 | https://github.com/OpenVPN/tap-windows6 |
 | ovpn-dco-win | OpenVPN's fast adapter on Windows | see upstream | https://github.com/OpenVPN/ovpn-dco-win |
+| WireGuard for Windows (wireguard.exe, wg.exe, with WireGuardNT) | WireGuard on Windows | MIT; WireGuardNT's prebuilt driver under WireGuard LLC's binary license | https://git.zx2c4.com/wireguard-windows · https://git.zx2c4.com/wireguard-nt |
 | OpenSSL | OpenVPN's cryptography on Android | Apache-2.0 | https://github.com/openssl/openssl |
 | LZ4, LZO | OpenVPN compression on Android | BSD-2-Clause, GPL-2.0 | https://github.com/lz4/lz4 · https://www.oberhumer.com/opensource/lzo/ |
 | hev-socks5-tunnel | Android's tunnel to Xray | MIT | https://github.com/heiher/hev-socks5-tunnel |
@@ -20,4 +21,4 @@ DT Connect is © DataCraft. Its installers also carry the open-source programs b
 | Natural Earth via world-atlas | The world map | Public domain / ISC | https://github.com/topojson/world-atlas |
 | flag-icons | Country flags | MIT | https://github.com/lipis/flag-icons |
 
-Each license's full text is in the component's repository linked above. For the exact source of a GPL component of a given DT Connect release, ask DataCraft support and it will be provided.
+The desktop installers carry these license texts in the app's `resources/bin/licenses` folder; each full text is also in the component's repository linked above. For the exact source of a GPL component of a given DT Connect release, ask DataCraft support and it will be provided.

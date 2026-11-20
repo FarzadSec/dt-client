@@ -67,6 +67,18 @@ function find(dir, name) {
   return null;
 }
 
+// License texts ship with the engines (resources/bin/licenses): each archive's own, plus the fixed
+// texts in build/licenses for the parts whose archives carry none (OpenVPN, TAP-Windows6, WireGuard).
+const licenses = path.join(bin, 'licenses');
+fs.mkdirSync(licenses, { recursive: true });
+for (const f of fs.readdirSync(path.resolve('build/licenses'))) fs.copyFileSync(path.resolve('build/licenses', f), path.join(licenses, f));
+fs.copyFileSync(path.resolve('hub/THIRD-PARTY.md'), path.join(licenses, 'THIRD-PARTY.md'));
+function license(dir, name) {
+  const f = find(dir, 'LICENSE') ?? find(dir, 'LICENSE.txt') ?? find(dir, 'COPYING');
+  if (!f) throw new Error(`${name}: no license file in its archive`);
+  fs.copyFileSync(f, path.join(licenses, `${name}-LICENSE.txt`));
+}
+
 async function release(repo, pick) {
   const releases = await json(`https://api.github.com/repos/${repo}/releases?per_page=60`);
   const chosen = releases.find((r) => !r.draft && !r.prerelease && pick(r.tag_name));
@@ -91,6 +103,7 @@ const xrayZip = await download(asset(xray, new RegExp(`^${xrayName.replace(/\./g
 await checkXrayDigest(xray, xrayName, xrayZip);
 const xrayDir = unzip(xrayZip, path.join(tmp, 'xray'));
 for (const f of [`xray${exe}`, 'geoip.dat', 'geosite.dat']) fs.copyFileSync(path.join(xrayDir, f), path.join(bin, f));
+license(xrayDir, 'Xray-core');
 versions.push(`xray ${xray.tag_name}`);
 
 const sbNames = { 'win-x64': /windows-amd64\.zip$/, 'linux-x64': /linux-amd64\.tar\.gz$/, 'linux-arm64': /linux-arm64\.tar\.gz$/, 'mac-x64': /darwin-amd64\.tar\.gz$/, 'mac-arm64': /darwin-arm64\.tar\.gz$/ };
@@ -99,6 +112,7 @@ const sbPattern = sbNames[`${target}-${arch}`];
 const sbArchive = await download(asset(singbox, sbPattern), path.join(tmp, target === 'win' ? 'sing-box.zip' : 'sing-box.tar.gz'));
 const sbDir = unzip(sbArchive, path.join(tmp, 'sing-box'));
 fs.copyFileSync(find(sbDir, `sing-box${exe}`), path.join(bin, `sing-box${exe}`));
+license(sbDir, 'sing-box');
 versions.push(`sing-box ${singbox.tag_name}`);
 
 if (target !== 'win') {

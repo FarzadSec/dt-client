@@ -45,6 +45,11 @@ jobs:
           elif [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_REF" = refs/heads/main ] && ! gh release view "$tag" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
             publish=true
           fi
+          # Never publish on this source repository: without RELEASE_REPO a release would show up here.
+          if [ "$publish" = true ] && [ "$RELEASE_REPO" = "$GITHUB_REPOSITORY" ]; then
+            echo "::warning::RELEASE_REPO is not set, so $tag is not published. Set it (and RELEASE_APP_ID, RELEASE_APP_KEY), then Run workflow on main."
+            publish=false
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "$tag: publish=$publish"
@@ -528,6 +533,15 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd out
+          # Every installer also under its name without the version (DT-Connect-Setup.exe,
+          # DT-Connect-android-universal.apk, ...), so .../releases/latest/download/<name> is a direct
+          # link that always gives the newest version.
+          ver="${TAG#v}"
+          for f in *; do
+            s="${f/-$ver/}"
+            [ "$s" != "$f" ] && [ ! -e "$s" ] && cp "$f" "$s"
+          done
+          ls -1
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
           # Another repository's release is tagged on its own default branch, not on this commit.
