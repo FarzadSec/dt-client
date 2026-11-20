@@ -1,7 +1,7 @@
 // Downloads the engines DT Connect runs into resources/bin/<os>-<arch> (CI):
 //   node scripts/fetch-binaries.mjs win x64 | linux x64 | linux arm64 | mac x64 | mac arm64
-// Xray and sing-box everywhere; on Windows also OpenVPN 2.6 with tapctl (run there: it unpacks an MSI)
-// and the TAP-Windows6 and ovpn-dco drivers its adapters need.
+// Xray and sing-box everywhere; on Windows also OpenVPN 2.6 with tapctl (run there: it unpacks an MSI),
+// the TAP-Windows6 and ovpn-dco drivers its adapters need, and WireGuard for Windows' wireguard.exe and wg.exe.
 // Linux and macOS use the system's OpenVPN. Xray's archives are checked against its published digests.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -67,6 +67,18 @@ function find(dir, name) {
   return null;
 }
 
+// License texts ship with the engines (resources/bin/licenses): each archive's own, plus the fixed
+// texts in build/licenses for the parts whose archives carry none (OpenVPN, TAP-Windows6, WireGuard).
+const licenses = path.join(bin, 'licenses');
+fs.mkdirSync(licenses, { recursive: true });
+for (const f of fs.readdirSync(path.resolve('build/licenses'))) fs.copyFileSync(path.resolve('build/licenses', f), path.join(licenses, f));
+fs.copyFileSync(path.resolve('hub/THIRD-PARTY.md'), path.join(licenses, 'THIRD-PARTY.md'));
+function license(dir, name) {
+  const f = find(dir, 'LICENSE') ?? find(dir, 'LICENSE.txt') ?? find(dir, 'COPYING');
+  if (!f) throw new Error(`${name}: no license file in its archive`);
+  fs.copyFileSync(f, path.join(licenses, `${name}-LICENSE.txt`));
+}
+
 async function release(repo, pick) {
   const releases = await json(`https://api.github.com/repos/${repo}/releases?per_page=60`);
   const chosen = releases.find((r) => !r.draft && !r.prerelease && pick(r.tag_name));
@@ -91,6 +103,7 @@ const xrayZip = await download(asset(xray, new RegExp(`^${xrayName.replace(/\./g
 await checkXrayDigest(xray, xrayName, xrayZip);
 const xrayDir = unzip(xrayZip, path.join(tmp, 'xray'));
 for (const f of [`xray${exe}`, 'geoip.dat', 'geosite.dat']) fs.copyFileSync(path.join(xrayDir, f), path.join(bin, f));
+license(xrayDir, 'Xray-core');
 versions.push(`xray ${xray.tag_name}`);
 
 const sbNames = { 'win-x64': /windows-amd64\.zip$/, 'linux-x64': /linux-amd64\.tar\.gz$/, 'linux-arm64': /linux-arm64\.tar\.gz$/, 'mac-x64': /darwin-amd64\.tar\.gz$/, 'mac-arm64': /darwin-arm64\.tar\.gz$/ };
@@ -99,6 +112,7 @@ const sbPattern = sbNames[`${target}-${arch}`];
 const sbArchive = await download(asset(singbox, sbPattern), path.join(tmp, target === 'win' ? 'sing-box.zip' : 'sing-box.tar.gz'));
 const sbDir = unzip(sbArchive, path.join(tmp, 'sing-box'));
 fs.copyFileSync(find(sbDir, `sing-box${exe}`), path.join(bin, `sing-box${exe}`));
+license(sbDir, 'sing-box');
 versions.push(`sing-box ${singbox.tag_name}`);
 
 if (target !== 'win') {
@@ -165,6 +179,38 @@ for (const variant of ['win10', 'win11']) {
   for (const f of ['ovpn-dco.inf', 'ovpn-dco.sys', 'ovpn-dco.cat']) fs.copyFileSync(path.join(dcoDir, variant, f), path.join(drivers, `dco-${variant}`, f));
 }
 versions.push('ovpn-dco-win 2.8.7');
+
+// WireGuard for Windows: the app runs WireGuard through its tunnel service, the official engine
+// (src/main/wireguardWindows.ts). The amd64 MSI named in the list of latest versions (whose digests are
+// BLAKE2b-256); the MSI, wireguard.exe and wg.exe must each carry WireGuard LLC's valid signature.
+const wgBase = 'https://download.wireguard.com/windows-client/';
+function wgSigned(file) {
+  // Windows PowerShell with its own module path: a PowerShell 7 step's would hide its security module.
+  const env = { ...process.env };
+  delete env.PSModulePath;
+  const sig = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$s = Get-AuthenticodeSignature -LiteralPath '${file}'; "$($s.Status)|$($s.SignerCertificate.Subject)"`], { encoding: 'utf8', env }).trim();
+  if (!/^Valid\|.*WireGuard LLC/i.test(sig)) throw new Error(`${path.basename(file)}: signature ${sig}`);
+}
+let wgName = /wireguard-amd64-([0-9.]+)\.msi/.exec(await (await fetch(`${wgBase}latest.sig`, { headers: { 'User-Agent': 'dt-connect-build' } })).text());
+if (!wgName) {
+  const page = await (await fetch(wgBase, { headers: { 'User-Agent': 'dt-connect-build' } })).text();
+  const newest = [...page.matchAll(/wireguard-amd64-([0-9.]+)\.msi/g)].map((m) => m[1]).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+  if (!newest) throw new Error('WireGuard: no amd64 MSI found');
+  wgName = [`wireguard-amd64-${newest}.msi`, newest];
+}
+const wgMsi = await download(`${wgBase}${wgName[0]}`, path.join(tmp, 'wireguard.msi'));
+wgSigned(wgMsi);
+const wgDir = path.join(tmp, 'wireguard');
+execFileSync('msiexec.exe', ['/a', wgMsi, '/qn', `TARGETDIR=${wgDir}`], { stdio: 'inherit' });
+fs.mkdirSync(path.join(bin, 'wireguard'), { recursive: true });
+for (const f of ['wireguard.exe', 'wg.exe']) {
+  const found = find(wgDir, f);
+  if (!found) throw new Error(`${f} not found in the WireGuard MSI`);
+  const dest = path.join(bin, 'wireguard', f);
+  fs.copyFileSync(found, dest);
+  wgSigned(dest);
+}
+versions.push(`wireguard-windows ${wgName[1]}`);
 
 fs.writeFileSync(path.join(bin, 'VERSIONS.txt'), versions.join('\n') + '\n');
 console.log(versions.join('\n'));

@@ -539,6 +539,10 @@ app.whenReady().then(async () => {
   ipcMain.on('log', (_event, text: unknown) => log('window', String(text).slice(0, 4000)));
 
   vpn.on('status', onStatus);
+  // A failed WireGuard try still reached the server: the panel frees the account's seat at once.
+  vpn.on('attemptFailed', (left: { protocol: string; locationId: number | null }) => {
+    panelTold = tellPanelLeft(left);
+  });
   setInterval(() => bookActivity(), 60_000);
   setInterval(() => void backgroundRefresh(), profileRefreshMs);
   powerMonitor.on('resume', () => setTimeout(() => void backgroundRefresh(), 15_000));

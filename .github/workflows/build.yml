@@ -17,9 +17,15 @@ on:
 permissions:
   contents: write
 
+# Releases go to the public download repository named by the RELEASE_REPO variable, so this source
+# repository can stay private. They are written as a GitHub App of that repository's owner
+# (RELEASE_APP_ID, RELEASE_APP_KEY): a personal token would show its person as the release's author.
+env:
+  RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
+
 jobs:
-  # A push to main whose package.json version has no release yet publishes it, so a release is cut
-  # by changing the version; a v* tag (a release made on GitHub's Releases page) publishes that one.
+  # A push to main (or Run workflow on main) whose package.json version has no release yet publishes
+  # it, so a release is cut by changing the version; a v* tag publishes that one.
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -36,8 +42,13 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             tag="$GITHUB_REF_NAME"
             publish=true
-          elif [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ] && ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          elif [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_REF" = refs/heads/main ] && ! gh release view "$tag" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
             publish=true
+          fi
+          # Never publish on this source repository: without RELEASE_REPO a release would show up here.
+          if [ "$publish" = true ] && [ "$RELEASE_REPO" = "$GITHUB_REPOSITORY" ]; then
+            echo "::warning::RELEASE_REPO is not set, so $tag is not published. Set it (and RELEASE_APP_ID, RELEASE_APP_KEY), then Run workflow on main."
+            publish=false
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
@@ -119,11 +130,20 @@ jobs:
             openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 2 -extfile ext.cnf -out server.crt
           )
           node dist/openvpn-check.js release/win-unpacked/resources "$(cygpath -w "$d")"
+      # WireGuard's tunnel service from the package, with the config the app writes (Iran direct's full list).
+      - name: Run WireGuard's tunnel service the way the app does
+        shell: pwsh
+        run: |
+          $res = 'release\win-unpacked\resources'
+          Get-Content "$res\bin\VERSIONS.txt"
+          node dist/wireguard-check.js $res
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: DT-Connect-Windows
           path: release/DT-Connect-Setup-*.exe
           if-no-files-found: error
+          retention-days: 3
 
   linux:
     needs: test
@@ -152,6 +172,11 @@ jobs:
           $bin/sing-box check -c smoke/tun.json
       - name: Build deb, rpm and pacman packages (x64 and arm64)
         run: npx electron-builder --linux --x64 --arm64 --publish never
+      # The account behind this repository must not reach customers, by way of a config or of git.
+      - name: No personal account in the app
+        run: |
+          if grep -r -a -i -l -E 'farzadsec|f4rzads3c' release/linux-unpacked release/linux-arm64-unpacked; then exit 1; fi
+          for p in release/*.deb; do if dpkg-deb -I "$p" | grep -i -E 'farzadsec|f4rzads3c'; then exit 1; fi; done
       - name: Install the deb, check the helper service answers, remove it
         run: |
           ls -la release
@@ -172,6 +197,7 @@ jobs:
             release/*.rpm
             release/*.pacman
           if-no-files-found: error
+          retention-days: 3
 
   # Each distribution's package manager resolves the package's dependencies (no systemd in a container).
   linux-distros:
@@ -269,6 +295,7 @@ jobs:
           name: DT-Connect-macOS
           path: release/*.pkg
           if-no-files-found: error
+          retention-days: 3
 
   android:
     needs: [test, version]
@@ -454,6 +481,7 @@ jobs:
           name: DT-Connect-Android
           path: release/*.apk
           if-no-files-found: error
+          retention-days: 3
 
   release:
     needs: [version, windows, linux, linux-distros, macos, android]
@@ -467,17 +495,70 @@ jobs:
           pattern: DT-Connect-*
           path: out
           merge-multiple: true
+      - name: Download repository
+        id: hub
+        if: env.RELEASE_REPO != github.repository
+        run: |
+          echo "owner=${RELEASE_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${RELEASE_REPO#*/}" >> "$GITHUB_OUTPUT"
+      - name: Token of the release app
+        id: app
+        if: env.RELEASE_REPO != github.repository
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          owner: ${{ steps.hub.outputs.owner }}
+          repositories: ${{ steps.hub.outputs.name }}
+      # Rendered before anything is published, so a page linking to a missing installer stops the release.
+      - name: Download page
+        if: env.RELEASE_REPO != github.repository
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${RELEASE_REPO}.git" hub-repo
+          git -C hub-repo config user.name "${SLUG}[bot]"
+          git -C hub-repo config user.email "$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)+${SLUG}[bot]@users.noreply.github.com"
+          node scripts/hub-page.mjs --tag "$TAG" --repo "$RELEASE_REPO" --files out --out hub-repo
+          # A release needs a commit to tag: a new, empty download repository gets the page first.
+          if ! git -C hub-repo rev-parse -q --verify HEAD >/dev/null; then
+            git -C hub-repo add -A && git -C hub-repo commit -q -m "DT Connect download page"
+            git -C hub-repo push origin HEAD:main
+          fi
       - name: Checksums and release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd out
+          # Every installer also under its name without the version (DT-Connect-Setup.exe,
+          # DT-Connect-android-universal.apk, ...), so .../releases/latest/download/<name> is a direct
+          # link that always gives the newest version.
+          ver="${TAG#v}"
+          for f in *; do
+            s="${f/-$ver/}"
+            [ "$s" != "$f" ] && [ ! -e "$s" ] && cp "$f" "$s"
+          done
+          ls -1
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          # Another repository's release is tagged on its own default branch, not on this commit.
+          target=()
+          [ "$RELEASE_REPO" = "$GITHUB_REPOSITORY" ] && target=(--target "$GITHUB_SHA")
           # A release made on GitHub's Releases page creates the tag first; its files are added to it.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" * --clobber
+          if gh release view "$TAG" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" * --repo "$RELEASE_REPO" --clobber
           else
-            gh release create "$TAG" * --target "$GITHUB_SHA" --title "DT Connect $TAG" --notes-file ../RELEASE_NOTES.md
+            gh release create "$TAG" * --repo "$RELEASE_REPO" "${target[@]}" --title "DT Connect $TAG" --notes-file ../RELEASE_NOTES.md
           fi
+      - name: Publish the download page
+        if: env.RELEASE_REPO != github.repository
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          cd hub-repo
+          git add -A
+          git diff --cached --quiet || git commit -m "DT Connect $TAG"
+          git push origin HEAD:main

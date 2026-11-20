@@ -1,3 +1,10 @@
+**DT Connect 1.1.3**
+
+- Downloads now come from the DataCraft download page, [github.com/DataCraft-Team/DT-Connect](https://github.com/DataCraft-Team/DT-Connect).
+- **WireGuard on Windows now runs on the official WireGuard engine**, the tunnel service and WireGuardNT driver of WireGuard for Windows, which ship with the app. A config that works in the official WireGuard app now works in DT Connect too. Kill switch, Iran direct and the DNS setting apply to it; per-app split tunnelling does not cover WireGuard on Windows.
+- Disconnecting, or connecting again, while a connection is still being tested now stops that test at once. Before, the earlier attempt kept running and could mark the new one as failed.
+- After a WireGuard attempt that fails, the app tells the panel the device left, so a limited account's slot is free at once.
+
 **DT Connect 1.1.2**
 
 - **macOS: Connect works after installing the package.** 1.1.1's package could only install into the user's own Applications folder, without administrator rights, so the helper that runs the VPN never got set up and every connection ended with "the DT Connect service is not running". The package now installs for all users (it asks for the Mac's password), sets up the helper and fails the installation if the helper does not start, instead of reporting success. It removes the 1.1.1 copy left in the user's Applications folder. Customers on 1.1.1 only need to install 1.1.2 over it.
