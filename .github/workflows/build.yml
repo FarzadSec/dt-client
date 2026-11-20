@@ -4,7 +4,9 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # A pull request with the macos label builds and tests the macOS installers too (labeled: adding it starts a run).
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       macos:
@@ -213,7 +215,7 @@ jobs:
 
   macos:
     needs: [test, version]
-    if: needs.version.outputs.publish == 'true' || (github.event_name == 'workflow_dispatch' && inputs.macos)
+    if: needs.version.outputs.publish == 'true' || (github.event_name == 'workflow_dispatch' && inputs.macos) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'macos'))
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
@@ -240,6 +242,22 @@ jobs:
         run: |
           npx electron-builder --mac --x64 --publish never
           npx electron-builder --mac --arm64 --publish never
+      # Double-clicking a package (Installer.app) offers only the domains the package allows; 1.1.1
+      # allowed only the user's home folder, where the helper (a root LaunchDaemon) cannot be set up.
+      # The command-line installer ignores the domains, so a home install from it must fail in postinstall.
+      - name: Check the packages install only system-wide
+        run: |
+          for pkg in release/*.pkg; do
+            rm -rf /tmp/pkg-expanded && pkgutil --expand "$pkg" /tmp/pkg-expanded
+            grep -o '<domains[^>]*>' /tmp/pkg-expanded/Distribution
+            test "$(installer -pkg "$pkg" -dominfo)" = LocalSystem
+          done
+          if installer -pkg release/DT-Connect-*-mac-arm64.pkg -target CurrentUserHomeDirectory; then
+            echo "A home-folder install succeeded" >&2
+            exit 1
+          fi
+          # Its files stay behind (Installer does not roll back); the system install below removes them.
+          ls -d "$HOME/Applications/DT Connect.app" || true
       - name: Install the Apple silicon package, check the helper answers
         run: |
           sudo installer -pkg release/DT-Connect-*-mac-arm64.pkg -target /
@@ -248,8 +266,17 @@ jobs:
           sleep 3
           sudo launchctl print system/team.datacraft.dtclient.helper | head -20
           node scripts/helper-hello.mjs /var/run/dt-connect.sock
+          echo "console user: $(stat -f %Su /dev/console)"
+          if [ -e "$HOME/Applications/DT Connect.app" ]; then echo "home-folder copy still there"; rm -rf "$HOME/Applications/DT Connect.app"; else echo "home-folder copy removed by postinstall"; fi
           sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"
           test ! -e "/Applications/DT Connect.app"
+      - name: Installer and helper logs
+        if: failure()
+        run: |
+          sudo grep -E 'postinstall|preinstall|DT Connect|dtclient' /var/log/install.log | tail -80 || true
+          sudo cat "/Library/Application Support/DT Connect/helper.log" || true
+          sudo launchctl print system/team.datacraft.dtclient.helper || true
+          ls -la /var/run/dt-connect.sock "/Applications/DT Connect.app" "$HOME/Applications" || true
       - uses: actions/upload-artifact@v4
         with:
           name: DT-Connect-macOS

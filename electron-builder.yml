@@ -107,9 +107,13 @@ mac:
       to: helper
     - from: build/uninstall-macos.sh
       to: uninstall.sh
+# Only a system-wide install into /Applications: the helper is a root LaunchDaemon. A home-folder
+# install ("Install for me only") runs as the user, cannot set it up, and leaves an app that cannot
+# connect; 1.1.1 allowed only that one, so double-clicking the package never installed the helper.
 pkg:
   installLocation: /Applications
   isRelocatable: false
   allowAnywhere: false
-  allowRootDirectory: false
+  allowCurrentUserHome: false
+  allowRootDirectory: true
   overwriteAction: upgrade

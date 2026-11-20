@@ -4,6 +4,13 @@ import net from 'node:net';
 import { lineSplitter, type HelperMessage, type HelperMethod } from '../shared/helperProtocol';
 import type { AppProfile, Settings, Status } from '../shared/types';
 
+// An error the helper answered with, as opposed to a helper that could not be reached.
+class HelperReply extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
 // The helper's side of the Vpn class, for Linux and macOS: the same calls and status events.
 export class RemoteVpn extends EventEmitter {
   private socket: net.Socket | null = null;
@@ -12,7 +19,11 @@ export class RemoteVpn extends EventEmitter {
   private nextId = 1;
   private current: Status = { state: 'disconnected' };
 
-  constructor(private readonly socketPath: string) {
+  // unreachable: the error code when the helper is not running (its text tells how to start it on that system).
+  constructor(
+    private readonly socketPath: string,
+    private readonly unreachable = 'helper_unreachable',
+  ) {
     super();
   }
 
@@ -58,7 +69,7 @@ export class RemoteVpn extends EventEmitter {
     const waiting = this.pending.get(message.id);
     this.pending.delete(message.id);
     if (message.ok) waiting?.resolve(message.value);
-    else waiting?.reject(new Error(message.code));
+    else waiting?.reject(new HelperReply(message.code));
   }
 
   private async call(method: HelperMethod, params?: unknown): Promise<unknown> {
@@ -82,8 +93,9 @@ export class RemoteVpn extends EventEmitter {
   async connect(profile: AppProfile, settings: Settings, locationId: number | null, latency?: Map<string, number | null>): Promise<Status> {
     try {
       return this.set((await this.call('connect', { profile, settings, locationId, latency: latency ? [...latency] : [] })) as Status);
-    } catch {
-      return this.set({ state: 'disconnected', locationId, error: 'helper_unreachable' });
+    } catch (err) {
+      // A running helper that refused or failed says why; anything else means it is not there.
+      return this.set({ state: 'disconnected', locationId, error: err instanceof HelperReply ? err.code : this.unreachable });
     }
   }
 
