@@ -15,8 +15,9 @@ on:
 permissions:
   contents: write
 
-# Releases go to the public download repository named by the RELEASE_REPO variable (with a
-# RELEASE_TOKEN that may write its contents), so this source repository can stay private.
+# Releases go to the public download repository named by the RELEASE_REPO variable, so this source
+# repository can stay private. They are written as a GitHub App of that repository's owner
+# (RELEASE_APP_ID, RELEASE_APP_KEY): a personal token would show its person as the release's author.
 env:
   RELEASE_REPO: ${{ vars.RELEASE_REPO || github.repository }}
 
@@ -32,7 +33,7 @@ jobs:
       - uses: actions/checkout@v5
       - id: v
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="v$(node -p "require('./package.json').version")"
           publish=false
@@ -156,6 +157,11 @@ jobs:
           $bin/sing-box check -c smoke/tun.json
       - name: Build deb, rpm and pacman packages (x64 and arm64)
         run: npx electron-builder --linux --x64 --arm64 --publish never
+      # The account behind this repository must not reach customers, by way of a config or of git.
+      - name: No personal account in the app
+        run: |
+          if grep -r -a -i -l -E 'farzadsec|f4rzads3c' release/linux-unpacked release/linux-arm64-unpacked; then exit 1; fi
+          for p in release/*.deb; do if dpkg-deb -I "$p" | grep -i -E 'farzadsec|f4rzads3c'; then exit 1; fi; done
       - name: Install the deb, check the helper service answers, remove it
         run: |
           ls -la release
@@ -449,26 +455,41 @@ jobs:
           pattern: DT-Connect-*
           path: out
           merge-multiple: true
+      - name: Download repository
+        id: hub
+        if: env.RELEASE_REPO != github.repository
+        run: |
+          echo "owner=${RELEASE_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${RELEASE_REPO#*/}" >> "$GITHUB_OUTPUT"
+      - name: Token of the release app
+        id: app
+        if: env.RELEASE_REPO != github.repository
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          owner: ${{ steps.hub.outputs.owner }}
+          repositories: ${{ steps.hub.outputs.name }}
       # Rendered before anything is published, so a page linking to a missing installer stops the release.
       - name: Download page
         if: env.RELEASE_REPO != github.repository
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLUG: ${{ steps.app.outputs.app-slug }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
-          [ -n "$GH_TOKEN" ] || { echo "::error::RELEASE_REPO is $RELEASE_REPO: add a RELEASE_TOKEN secret that can write its contents."; exit 1; }
           git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${RELEASE_REPO}.git" hub-repo
+          git -C hub-repo config user.name "${SLUG}[bot]"
+          git -C hub-repo config user.email "$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)+${SLUG}[bot]@users.noreply.github.com"
           node scripts/hub-page.mjs --tag "$TAG" --repo "$RELEASE_REPO" --files out --out hub-repo
           # A release needs a commit to tag: a new, empty download repository gets the page first.
           if ! git -C hub-repo rev-parse -q --verify HEAD >/dev/null; then
-            git -C hub-repo config user.name "github-actions[bot]"
-            git -C hub-repo config user.email "41898283+github-actions[bot]@users.noreply.github.com"
             git -C hub-repo add -A && git -C hub-repo commit -q -m "DT Connect download page"
             git -C hub-repo push origin HEAD:main
           fi
       - name: Checksums and release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd out
@@ -489,8 +510,6 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd hub-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet || git commit -m "DT Connect $TAG"
           git push origin HEAD:main

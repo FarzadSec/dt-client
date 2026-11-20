@@ -1,6 +1,8 @@
 appId: team.datacraft.dtclient
 productName: DT Connect
 copyright: Copyright © DataCraft
+# The app has no auto-updater; without this, electron-builder writes the git remote into app-update.yml.
+publish: null
 directories:
   output: release
   buildResources: build
@@ -63,7 +65,8 @@ linux:
   mimeTypes: [x-scheme-handler/dtconnect]
   synopsis: DT Connect, the VPN app of DataCraft
   description: The VPN app of DataCraft. Sign in with the subscription link of your service and your username, or the sign-in link from the bot.
-  maintainer: DataCraft <FarzadSec@users.noreply.github.com>
+  # Debian wants an address here; .invalid (RFC 2606) is one that names no person and no domain.
+  maintainer: DataCraft <noreply@datacraft.invalid>
   vendor: DataCraft
   artifactName: DT-Connect-${version}-linux-${arch}.${ext}
   extraResources:
