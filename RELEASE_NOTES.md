@@ -1,3 +1,7 @@
+**DT Connect 1.1.2**
+
+- Downloads now come from the DataCraft download page, [github.com/DataCraft-Team/DT-Connect](https://github.com/DataCraft-Team/DT-Connect). The app works the same as 1.1.1.
+
 **DT Connect 1.1.1**
 
 - **Disconnecting OpenVPN now ends the session on the server too.** Over UDP the app sends OpenVPN's exit notification and lets OpenVPN finish, where it used to stop it at once (on Windows by ending the process). The server lets go of the session within about five seconds instead of holding it, and the account's device slot, for up to two minutes, so switching to another location or protocol right after a disconnect works.
