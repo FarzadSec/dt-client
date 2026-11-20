@@ -495,6 +495,23 @@ jobs:
           pattern: DT-Connect-*
           path: out
           merge-multiple: true
+      # Before the page is rendered, so the page's check sees every file the release will have.
+      - name: Checksums
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          cd out
+          # Every installer also under its name without the version (DT-Connect-Setup.exe,
+          # DT-Connect-android-universal.apk, ...), so .../releases/latest/download/<name> is a direct
+          # link that always gives the newest version.
+          ver="${TAG#v}"
+          for f in *; do
+            s="${f/-$ver/}"
+            [ "$s" != "$f" ] && [ ! -e "$s" ] && cp "$f" "$s"
+          done
+          ls -1
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Download repository
         id: hub
         if: env.RELEASE_REPO != github.repository
@@ -527,23 +544,12 @@ jobs:
             git -C hub-repo add -A && git -C hub-repo commit -q -m "DT Connect download page"
             git -C hub-repo push origin HEAD:main
           fi
-      - name: Checksums and release
+      - name: Release
         env:
           GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd out
-          # Every installer also under its name without the version (DT-Connect-Setup.exe,
-          # DT-Connect-android-universal.apk, ...), so .../releases/latest/download/<name> is a direct
-          # link that always gives the newest version.
-          ver="${TAG#v}"
-          for f in *; do
-            s="${f/-$ver/}"
-            [ "$s" != "$f" ] && [ ! -e "$s" ] && cp "$f" "$s"
-          done
-          ls -1
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
           # Another repository's release is tagged on its own default branch, not on this commit.
           target=()
           [ "$RELEASE_REPO" = "$GITHUB_REPOSITORY" ] && target=(--target "$GITHUB_SHA")
