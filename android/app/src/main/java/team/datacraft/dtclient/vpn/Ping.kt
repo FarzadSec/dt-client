@@ -1,51 +1,63 @@
 package team.datacraft.dtclient.vpn
 
-import java.net.InetSocketAddress
-import java.net.Socket
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
+import team.datacraft.dtclient.core.Core
+import team.datacraft.dtclient.data.AppLog
 import team.datacraft.dtclient.data.Profile
 
-// One probe per server: the TCP connect time, or an ICMP echo for servers that answer on UDP only.
+// The real delay of every config the phone can run, as the panel's outbound test measures it: a request
+// to Google's empty page through Xray for the V2Ray protocols and WireGuard (Core.measureDelay, its own
+// instance beside the connection's), and the server's answer to the first handshake message for OpenVPN.
 object Ping {
-    private val hostPattern = Regex("^[A-Za-z0-9.:_\\[\\]][A-Za-z0-9.:_\\-\\[\\]%]*$")
-
-    fun tcp(host: String, port: Int, timeoutMs: Int = 3000): Int? = runCatching {
-        Socket().use { socket ->
-            val started = System.nanoTime()
-            socket.connect(InetSocketAddress(host, port), timeoutMs)
-            ((System.nanoTime() - started) / 1_000_000).toInt().coerceAtLeast(1)
-        }
-    }.getOrNull()
-
-    fun icmp(host: String): Int? {
-        if (!hostPattern.matches(host)) return null
-        return runCatching {
-            val process = ProcessBuilder("ping", "-c", "1", "-W", "2", host).redirectErrorStream(true).start()
-            val out = process.inputStream.bufferedReader().use { it.readText() }
-            process.waitFor()
-            Regex("[=<]\\s*(\\d+(?:[.,]\\d+)?)\\s*ms").find(out)?.groupValues?.get(1)?.replace(',', '.')?.toDouble()?.toInt()?.coerceAtLeast(1)
-        }.getOrNull()
-    }
+    private fun resolve(name: String): List<String> = runCatching {
+        val all = InetAddress.getAllByName(name).toList()
+        val v4 = all.filterIsInstance<Inet4Address>().mapNotNull { it.hostAddress }
+        val v6 = all.filterIsInstance<Inet6Address>().mapNotNull { it.hostAddress?.substringBefore('%') }
+        v4.ifEmpty { v6 }.distinct()
+    }.getOrDefault(emptyList())
 
     suspend fun all(profile: Profile): Map<String, Int?> = coroutineScope {
-        val probes = ConcurrentHashMap<String, Deferred<Int?>>()
-        fun once(key: String, probe: () -> Int?): Deferred<Int?> = probes.getOrPut(key) { async(Dispatchers.IO) { probe() } }
-        profile.configs.filter { Candidates.runnable(it) }.map { config ->
+        val gate = Semaphore(4)
+        val once = ConcurrentHashMap<String, Deferred<Int?>>()
+        fun shared(key: String, probe: () -> Int?): Deferred<Int?> = once.getOrPut(key) { async(Dispatchers.IO) { probe() } }
+        val results = profile.configs.filter { Candidates.runnable(it) }.map { config ->
             async(Dispatchers.IO) {
-                val target = Candidates.serverAddress(config) ?: return@async config.link to null
-                val (host, port) = target
-                val ms = if (Candidates.answersOnUdp(config)) {
-                    once("icmp $host") { icmp(host) }.await()
+                val ms: Int? = if (config.protocol == "openvpn") {
+                    val target = OpenVpnProfile.decode(config.link)?.let { OpenVpnProbe.target(it) }
+                    if (target == null) null else shared("ovpn ${target.udp} ${target.host}:${target.port}") { OpenVpnProbe.handshakeMs(target) }.await()
                 } else {
-                    once("tcp $host:$port") { tcp(host, port) }.await() ?: once("icmp $host") { icmp(host) }.await()
+                    val outbound = XrayConfig.proxyOutboundFor(config.protocol, config.link, config.outbound)
+                    if (outbound == null) {
+                        null
+                    } else {
+                        gate.withPermit {
+                            val hosts = XrayConfig.serverNames(outbound).associateWith { resolve(it) }.filterValues { it.isNotEmpty() }
+                            val json = XrayConfig.delayTest(outbound, hosts)
+                            withTimeoutOrNull(25_000) {
+                                runCatching { Core.measureDelay(json, TEST_URL, 10_000L) }.getOrDefault(-1L)
+                            }?.takeIf { it > 0 }?.toInt()
+                        }
+                    }
                 }
                 config.link to ms
             }
         }.awaitAll().toMap()
+        AppLog.i("ping", "real delay: ${results.values.count { it != null }}/${results.size} config(s) answered")
+        results
     }
+
+    // The WireGuard locations a test reached: the panel frees the account's seat on them at once.
+    fun wireguardLocations(profile: Profile, tested: Map<String, Int?>): Set<Int> =
+        profile.configs.filter { it.protocol == "wireguard" && it.link in tested }.mapNotNull { it.locationId }.toSet()
 }

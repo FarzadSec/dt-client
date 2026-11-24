@@ -12,6 +12,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import team.datacraft.dtclient.BuildConfig
 import team.datacraft.dtclient.core.Core
@@ -35,6 +36,9 @@ object Repo {
     // A sign-in code that arrived as a dtconnect:// link, waiting for the window to act on it.
     val pendingSignIn = MutableStateFlow<SignInCode?>(null)
     val sessions = MutableStateFlow<List<Session>>(emptyList())
+    // Every subscription signed in on this phone; the one in use is also kept in the plain keys
+    // (subLink, username, token, profile), which the rest of the app reads.
+    val accounts = MutableStateFlow<List<AccountEntry>>(emptyList())
     private var openSince = 0L
 
     val userAgent: String get() = "DTConnect/${BuildConfig.VERSION_NAME} (android)"
@@ -51,6 +55,7 @@ object Repo {
         signedIn.value = prefs.getString("token", null) != null && profile.value != null
         fetchedAt.value = prefs.getLong("fetchedAt", 0L)
         sessions.value = Secured.decode(prefs.getString("sessions", null))
+        accounts.value = loadAccounts()
         // A session the app was stopped in counts until the last time it was seen running.
         val since = prefs.getLong("openSince", 0L)
         val seen = prefs.getLong("openSeen", 0L)
@@ -122,26 +127,119 @@ object Repo {
         appVersion = BuildConfig.VERSION_NAME,
     )
 
-    suspend fun login(subLink: String, username: String) = withContext(Dispatchers.IO) {
-        AppLog.secret(*AppLog.linkSecrets(subLink).toTypedArray())
-        val base = Api.base(subLink)
-        AppLog.i("app", "signing in as ${username.trim()} on ${runCatching { URI(base).host }.getOrNull()}")
-        val info = device()
-        val token = try {
-            Api.login(base, username.trim(), info, userAgent)
-        } catch (e: ApiException) {
-            AppLog.w("app", "sign-in failed: ${e.code}")
-            throw e
+    // Signs in with the subscription link alone: the panel's information page names its account. A
+    // dtconnect:// link may carry the username, which then goes first. Another subscription is added
+    // to the accounts and becomes the one in use.
+    suspend fun login(subLink: String, username: String = ""): Unit = withContext(Dispatchers.IO) {
+        val link = subLink.trim()
+        AppLog.secret(*AppLog.linkSecrets(link).toTypedArray())
+        val base = Api.base(link)
+        val host = runCatching { URI(base).host }.getOrNull()
+        val names = username.trim().takeIf { it.isNotEmpty() }?.let { listOf(it) } ?: run {
+            AppLog.i("app", "reading the account of the subscription on $host")
+            try {
+                Api.subscriptionAccounts(link, userAgent)
+            } catch (e: ApiException) {
+                AppLog.w("app", "reading the account failed: ${e.code}")
+                throw e
+            }
         }
-        AppLog.secret(token)
-        val fetched = Api.profile(base, token, info.deviceId, userAgent)
-        AppLog.i("app", "signed in: ${summary(fetched)}")
-        val now = System.currentTimeMillis()
-        prefs.edit().putString("subLink", subLink.trim()).putString("username", username.trim()).putString("token", token).putString("profile", fetched.raw).putLong("fetchedAt", now).apply()
-        profile.value = fetched
-        fetchedAt.value = now
+        val info = device()
+        var last: ApiException? = null
+        for (name in names.take(5)) {
+            AppLog.i("app", "signing in as $name on $host")
+            val token = try {
+                Api.login(base, name, info, userAgent)
+            } catch (e: ApiException) {
+                AppLog.w("app", "sign-in failed: ${e.code}")
+                last = e
+                // Another name of the same subscription may be the one the panel knows.
+                if (e.code == "bad_login") continue
+                throw e
+            }
+            AppLog.secret(token)
+            val fetched = Api.profile(base, token, info.deviceId, userAgent)
+            AppLog.i("app", "signed in: ${summary(fetched)}")
+            val now = System.currentTimeMillis()
+            prefs.edit().putString("subLink", link).putString("username", name).putString("token", token).putString("profile", fetched.raw).putLong("fetchedAt", now).apply()
+            saveActive()
+            profile.value = fetched
+            fetchedAt.value = now
+            signOutReason.value = ""
+            signedIn.value = true
+            return@withContext
+        }
+        throw last ?: ApiException("bad_login")
+    }
+
+    // The accounts, from their own key; a phone signed in before 1.2 has its one account added.
+    private fun loadAccounts(): List<AccountEntry> {
+        val list = runCatching {
+            val arr = JSONArray(prefs.getString("accounts", "[]"))
+            (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let(AccountEntry::fromJson) }
+        }.getOrDefault(emptyList()).toMutableList()
+        val link = prefs.getString("subLink", null)
+        val name = prefs.getString("username", null)
+        if (!link.isNullOrEmpty() && !name.isNullOrEmpty() && prefs.getString("token", null) != null) {
+            val id = AccountEntry.idOf(link, name)
+            if (list.none { it.id == id }) {
+                list.add(0, AccountEntry(id, link, name, prefs.getString("token", null), prefs.getString("profile", null)))
+                prefs.edit().putString("accounts", JSONArray(list.map { it.toJson() }).toString()).putString("activeId", id).apply()
+            }
+        }
+        return list
+    }
+
+    private fun saveAccounts(list: List<AccountEntry>) {
+        accounts.value = list
+        prefs.edit().putString("accounts", JSONArray(list.map { it.toJson() }).toString()).apply()
+    }
+
+    fun activeId(): String = prefs.getString("activeId", "") ?: ""
+
+    // The account in use, as the plain keys hold it now, written back to the list.
+    private fun saveActive() {
+        val link = prefs.getString("subLink", null) ?: return
+        val name = prefs.getString("username", null) ?: return
+        val id = AccountEntry.idOf(link, name)
+        val entry = AccountEntry(id, link, name, prefs.getString("token", null), prefs.getString("profile", null))
+        val list = accounts.value.toMutableList()
+        val at = list.indexOfFirst { it.id == id }
+        if (at >= 0) list[at] = entry else list += entry
+        prefs.edit().putString("activeId", id).apply()
+        saveAccounts(list)
+    }
+
+    // Switches to a signed-in account (the VPN is disconnected by the caller first); one whose session
+    // ended signs in again with its link.
+    suspend fun switchAccount(id: String): Unit = withContext(Dispatchers.IO) {
+        val target = accounts.value.firstOrNull { it.id == id } ?: return@withContext
+        if (target.token == null || target.profile == null) {
+            login(target.subLink, target.username)
+            return@withContext
+        }
+        prefs.edit().putString("subLink", target.subLink).putString("username", target.username).putString("token", target.token)
+            .putString("profile", target.profile).putLong("fetchedAt", 0L).putString("activeId", id).apply()
+        AppLog.secret(target.token, *AppLog.linkSecrets(target.subLink).toTypedArray())
+        profile.value = runCatching { Profile.parse(target.profile) }.getOrNull()
+        fetchedAt.value = 0L
         signOutReason.value = ""
-        signedIn.value = true
+        signedIn.value = profile.value != null
+        pings.value = emptyMap()
+        AppLog.i("app", "switched to the account ${target.username}")
+        refresh()
+        Unit
+    }
+
+    // Removes an account from this phone; the one in use signs out (and the next one takes its place).
+    suspend fun removeAccount(id: String): Unit = withContext(Dispatchers.IO) {
+        if (id == activeId()) {
+            logout()
+            return@withContext
+        }
+        val target = accounts.value.firstOrNull { it.id == id } ?: return@withContext
+        target.token?.let { token -> runCatching { Api.logout(Api.base(target.subLink), token, deviceId(), userAgent) } }
+        saveAccounts(accounts.value.filter { it.id != id })
     }
 
     private val sessionEnding = setOf("bad_session", "app_disabled", "not_found")
@@ -155,6 +253,7 @@ object Repo {
             val fetched = Api.profile(Api.base(subLink), token, deviceId(), userAgent)
             val now = System.currentTimeMillis()
             prefs.edit().putString("profile", fetched.raw).putLong("fetchedAt", now).apply()
+            saveActive()
             profile.value = fetched
             fetchedAt.value = now
             null
@@ -233,18 +332,26 @@ object Repo {
         }
     }
 
+    // The session of the account in use ended: it stays listed, to sign in again with one tap.
     private fun signOut(reason: String) {
-        prefs.edit().remove("token").remove("profile").apply()
+        val id = activeId()
+        prefs.edit().remove("token").remove("profile").remove("activeId").apply()
+        saveAccounts(accounts.value.map { if (it.id == id) it.copy(token = null, profile = null) else it })
         profile.value = null
         signedIn.value = false
         signOutReason.value = reason
     }
 
-    suspend fun logout() = withContext(Dispatchers.IO) {
+    // Signs out of the account in use and removes it; another signed-in account takes its place.
+    suspend fun logout(): Unit = withContext(Dispatchers.IO) {
         val subLink = prefs.getString("subLink", null)
         val token = prefs.getString("token", null)
         if (subLink != null && token != null) runCatching { Api.logout(Api.base(subLink), token, deviceId(), userAgent) }
+        val id = activeId()
+        saveAccounts(accounts.value.filter { it.id != id })
         signOut("")
+        val next = accounts.value.firstOrNull { it.token != null && it.profile != null }
+        if (next != null) switchAccount(next.id)
     }
 
     // Tells the panel this device left a connection (Api.disconnected); best effort, on the caller's thread.
@@ -258,13 +365,25 @@ object Repo {
     fun lastSubLink(): String = prefs.getString("subLink", "") ?: ""
     fun lastUsername(): String = prefs.getString("username", "") ?: ""
 
+    // The real delay of every config; WireGuard's test is a handshake, which the panel counts as a seat
+    // until the device says it left, so the locations it touched are freed (not the one in use).
     suspend fun ping() {
         val p = profile.value ?: return
+        if (pinging.value) return
         pinging.value = true
         try {
-            pings.value = Ping.all(p)
+            val results = Ping.all(p)
+            pings.value = results
+            pingedAt = System.currentTimeMillis()
+            val status = VpnState.status.value
+            val using = if (status.state == team.datacraft.dtclient.data.ConnState.Connected && status.protocol == "wireguard") status.serverId else null
+            withContext(Dispatchers.IO) {
+                for (id in Ping.wireguardLocations(p, results)) if (id != using) tellPanelLeft("wireguard", id, null)
+            }
         } finally {
             pinging.value = false
         }
     }
+
+    @Volatile var pingedAt = 0L
 }

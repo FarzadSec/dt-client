@@ -94,9 +94,15 @@ private fun SwitchAccount(activity: MainActivity) {
         text = { Text(t("switchAccountText", "user" to iso(current)), color = c.muted) },
         confirmButton = {
             TextButton(onClick = {
+                Repo.pendingSignIn.value = null
                 activity.disconnect()
-                // Signed out, the sign-in screen takes the waiting code and signs in with it.
-                scope.launch { Repo.logout() }
+                // The link's account is added to the accounts and becomes the one in use.
+                scope.launch {
+                    runCatching { Repo.login(code.subLink, code.username) }.onFailure { e ->
+                        val msg = if (e is team.datacraft.dtclient.data.ApiException) t.error(e.code) else t.error("unexpected")
+                        android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
             }) { Text(t("switch"), color = c.accent, fontWeight = FontWeight.Bold) }
         },
         dismissButton = { TextButton(onClick = { Repo.pendingSignIn.value = null }) { Text(t("cancel"), color = c.text) } },
@@ -124,7 +130,7 @@ private fun MainScreen(activity: MainActivity) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f)) {
                 when (tab) {
-                    "protection" -> ProtectionPage(settings) { overlay = "apps" }
+                    "protection" -> ProtectionPage(settings, activity, onApps = { overlay = "apps" }, onLockApps = { overlay = "lockApps" })
                     "notices" -> NoticesPage(log)
                     "account" -> AccountPage(p, settings, activity)
                     else -> HomePage(p, settings, log, activity, onLocations = { search -> overlay = if (search) "search" else "locations" }, onTab = { tab = it }, onApps = { overlay = "apps" })
@@ -140,6 +146,39 @@ private fun MainScreen(activity: MainActivity) {
         }
     }
     if (overlay == "apps") AppPicker(settings) { overlay = "" }
+    if (overlay == "lockApps") AppPicker(settings, forLock = true) {
+        overlay = ""
+        activity.applyLock()
+    }
+
+    // Each time the app comes to the screen, the plan's end (2 days, 3 GB) is shown if it is near.
+    val opened by MainActivity.opened.collectAsState()
+    var warnedAt by rememberSaveable { mutableStateOf(-1) }
+    val warnings = remember(p.account) { planWarnings(p.account) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    if (warnings.isNotEmpty() && warnedAt != opened && opened > 0) {
+        PlanWarningDialog(
+            warnings,
+            p.supportUrl,
+            onRenew = {
+                warnedAt = opened
+                runCatching { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(p.supportUrl))) }
+            },
+            onClose = { warnedAt = opened },
+        )
+    }
+    val lockHit by team.datacraft.dtclient.vpn.VpnState.lockHit.collectAsState()
+    lockHit?.let { name ->
+        LockDialog(
+            name,
+            onConnect = {
+                team.datacraft.dtclient.vpn.VpnState.lockHit.value = null
+                activity.connect(settings.locationId)
+            },
+            onSkip = { team.datacraft.dtclient.vpn.DtVpnService.skipLock(activity, 15) },
+            onClose = { team.datacraft.dtclient.vpn.VpnState.lockHit.value = null },
+        )
+    }
 }
 
 @Composable
@@ -154,7 +193,7 @@ private fun BottomBar(tab: String, unread: Int, onSelect: (String) -> Unit) {
     )
     Column(Modifier.fillMaxWidth().background(c.background)) {
         HorizontalDivider(color = c.line)
-        Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 10.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceAround) {
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceAround) {
             for ((key, icon, label) in tabs) {
                 val on = key == tab
                 Box(
@@ -164,10 +203,10 @@ private fun BottomBar(tab: String, unread: Int, onSelect: (String) -> Unit) {
                             role = Role.Tab
                             selected = on
                         }
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
+                        .padding(horizontal = 20.dp, vertical = 9.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(painterResource(icon), null, tint = if (on) c.text else c.muted, modifier = Modifier.size(27.dp))
+                    Icon(painterResource(icon), null, tint = if (on) c.text else c.muted, modifier = Modifier.size(23.dp))
                     if (key == "notices" && unread > 0) {
                         Box(
                             Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-5).dp).size(18.dp).clip(CircleShape).background(Palette.teal),

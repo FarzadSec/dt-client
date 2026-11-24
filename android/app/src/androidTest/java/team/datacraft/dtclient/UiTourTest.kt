@@ -92,8 +92,9 @@ class UiTourTest {
             see("the sign-in form", By.text(fa("signInTitle")))
             shot("02-sign-in")
 
-            // What scanning the bot's QR code or tapping its link does: the app opens with both values.
-            val link = SignIn.build(SignInCode(panel!!, "demo-user"))
+            // What scanning the bot's QR code or tapping its link does: the subscription link alone signs in
+            // (the app reads its account from the panel's information page).
+            val link = SignIn.build(SignInCode(panel!!, ""))
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).setPackage(context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             assertTrue("signed in by the link", waitFor(20_000) { Repo.signedIn.value })
             assertEquals("demo-user", Repo.lastUsername())

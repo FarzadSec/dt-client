@@ -154,6 +154,34 @@ object XrayConfig {
         )
     }
 
+    // The delay test's own Xray: the outbound as the connection runs it, first, so it carries what is
+    // dialled through the instance; Xray's own lookups (WireGuard's targets) go through it too.
+    fun delayTest(outbound: JSONObject, hosts: Map<String, List<String>> = emptyMap()): String {
+        val proxy = JSONObject(outbound.toString()).put("tag", "proxy")
+        val stream = proxy.optJSONObject("streamSettings") ?: JSONObject()
+        val sockopt = stream.optJSONObject("sockopt") ?: JSONObject()
+        val onlyV6 = hosts.values.any { ips -> ips.isNotEmpty() && ips.all { it.contains(':') } }
+        sockopt.put("domainStrategy", if (onlyV6) "UseIP" else "UseIPv4")
+        stream.put("sockopt", sockopt)
+        proxy.put("streamSettings", stream)
+        val extra = JSONArray()
+        carryPlain(proxy, extra)
+        val dnsConfig = JSONObject().put("servers", JSONArray(defaultDns)).put("queryStrategy", if (onlyV6) "UseIP" else "UseIPv4")
+        if (hosts.isNotEmpty()) {
+            val h = JSONObject()
+            for ((name, ips) in hosts) if (ips.isNotEmpty()) h.put("full:$name", if (ips.size == 1) ips[0] else JSONArray(ips))
+            dnsConfig.put("hosts", h)
+        }
+        val outbounds = JSONArray().put(proxy)
+        for (i in 0 until extra.length()) outbounds.put(extra.get(i))
+        outbounds.put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+        return JSONObject()
+            .put("log", JSONObject().put("loglevel", "none").put("access", "none"))
+            .put("dns", dnsConfig)
+            .put("outbounds", outbounds)
+            .toString()
+    }
+
     fun build(
         outbound: JSONObject,
         socksPort: Int,

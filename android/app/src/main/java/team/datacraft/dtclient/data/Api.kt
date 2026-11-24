@@ -29,6 +29,7 @@ object Api {
                 requestMethod = method
                 connectTimeout = timeoutMs
                 readTimeout = timeoutMs
+                useCaches = false
                 setRequestProperty("User-Agent", userAgent)
                 setRequestProperty("Accept", "application/json")
                 headers.forEach { (k, v) -> setRequestProperty(k, v) }
@@ -75,8 +76,24 @@ object Api {
         return token
     }
 
+    // No cache between the app and the panel may answer for it: a profile is always fetched anew.
+    private val fresh = mapOf("Cache-Control" to "no-cache", "Pragma" to "no-cache")
+
+    // The accounts a subscription link belongs to, from its information page (<link>?format=info), so a
+    // customer signs in with the link alone. The first is the subscription's own.
+    fun subscriptionAccounts(subLink: String, userAgent: String): List<String> {
+        val raw = subLink.trim().substringBefore('#')
+        val url = raw + (if (raw.contains('?')) "&" else "?") + "format=info"
+        if (!SignIn.isSubLink(raw)) throw ApiException("bad_link")
+        val json = call(url, "GET", userAgent, fresh)
+        val emails = json.optJSONArray("emails") ?: throw ApiException("bad_response", 200)
+        val names = (0 until emails.length()).mapNotNull { emails.optString(it).trim().takeIf { e -> e.isNotEmpty() } }.distinct()
+        if (names.isEmpty()) throw ApiException("no_account", 200)
+        return names
+    }
+
     fun profile(base: String, token: String, deviceId: String, userAgent: String): Profile {
-        val json = call("$base/profile", "GET", userAgent, mapOf("Authorization" to "Bearer $token", "X-HWID" to deviceId))
+        val json = call("$base/profile?t=${System.currentTimeMillis()}", "GET", userAgent, mapOf("Authorization" to "Bearer $token", "X-HWID" to deviceId) + fresh)
         if (!json.has("account") || !json.has("configs")) throw ApiException("bad_response", 200)
         return Profile.parse(json.toString())
     }

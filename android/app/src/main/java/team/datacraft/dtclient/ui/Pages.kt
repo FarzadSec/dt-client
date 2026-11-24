@@ -69,41 +69,42 @@ import team.datacraft.dtclient.data.Settings
 
 // The protection tab: how the app connects and what goes around the tunnel.
 @Composable
-fun ProtectionPage(settings: Settings, onApps: () -> Unit) {
+fun ProtectionPage(settings: Settings, activity: MainActivity, onApps: () -> Unit, onLockApps: () -> Unit) {
     val t = LocalT.current
     val c = LocalDt.current
     val context = LocalContext.current
     var dns by remember(settings.dns) { mutableStateOf(settings.dns) }
-    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         PageTitle(t("protection"))
         DtCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconTile(R.drawable.ic_server, size = 44.dp)
-                Spacer(Modifier.width(14.dp))
-                Text(t("protocol"), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                IconTile(R.drawable.ic_server, size = 36.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(t("protocol"), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(12.dp))
-            ChoiceChips(listOf("auto" to t("auto"), "xray" to "Xray", "wireguard" to "WireGuard", "openvpn" to "OpenVPN"), settings.protocol) { v -> Repo.updateSettings { it.copy(protocol = v) } }
             Spacer(Modifier.height(10.dp))
-            Text(t("protocolHint"), color = c.muted, fontSize = 13.sp, lineHeight = 21.sp)
+            ChoiceChips(listOf("auto" to t("auto"), "xray" to "V2Ray", "wireguard" to "WireGuard", "openvpn" to "OpenVPN"), settings.protocol) { v -> Repo.updateSettings { it.copy(protocol = v) } }
+            Spacer(Modifier.height(8.dp))
+            Text(t("protocolHint"), color = c.muted, fontSize = 12.sp, lineHeight = 18.sp)
         }
-        DtCard(padding = 14.dp) {
+        LockCard(settings, activity, onLockApps)
+        DtCard(padding = 10.dp) {
             ToggleRow(R.drawable.ic_pin, t("iranDirect"), t("iranDirectHint"), settings.iranDirect) { v -> Repo.updateSettings { it.copy(iranDirect = v) } }
             HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 4.dp))
             ToggleRow(R.drawable.ic_ban, t("adBlock"), t("adBlockHint"), settings.adBlock) { v -> Repo.updateSettings { it.copy(adBlock = v) } }
         }
-        DtCard(padding = 14.dp) {
+        DtCard(padding = 10.dp) {
             NavRow(R.drawable.ic_lock, t("killSwitch"), t("killSwitchHint")) { runCatching { context.startActivity(Intent(AndroidSettings.ACTION_VPN_SETTINGS)) } }
             HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 4.dp))
             NavRow(R.drawable.ic_grid, t("splitTunneling"), if (settings.splitApps.isEmpty()) t("splitHint") else t("appsCount", "n" to iso("${settings.splitApps.size}")), onClick = onApps)
         }
         DtCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconTile(R.drawable.ic_globe, size = 44.dp)
-                Spacer(Modifier.width(14.dp))
-                Text(t("dns"), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                IconTile(R.drawable.ic_globe, size = 36.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(t("dns"), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             Ltr {
                 OutlinedTextField(
                     value = dns,
@@ -129,6 +130,80 @@ fun ProtectionPage(settings: Settings, onApps: () -> Unit) {
         Text(t("appliesNextConnect"), color = c.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 6.dp))
         Spacer(Modifier.height(16.dp))
     }
+}
+
+// Apps and sites that must not be used while the VPN is off (vpn/Guard.kt does the holding back).
+@Composable
+private fun LockCard(settings: Settings, activity: MainActivity, onLockApps: () -> Unit) {
+    val t = LocalT.current
+    val c = LocalDt.current
+    val guarding by team.datacraft.dtclient.vpn.VpnState.guarding.collectAsState()
+    var site by remember { mutableStateOf("") }
+    var bad by remember { mutableStateOf(false) }
+    fun change(next: (Settings) -> Settings) {
+        Repo.updateSettings(next)
+        activity.applyLock()
+    }
+    DtCard {
+        ToggleRow(R.drawable.ic_lock, t("lockEnabled"), t("lockHint"), settings.lockEnabled) { v -> change { it.copy(lockEnabled = v) } }
+        if (guarding) MessageText(t("lockOn"), false)
+        HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 6.dp))
+        NavRow(R.drawable.ic_grid, t("lockApps"), if (settings.lockApps.isEmpty()) t("chooseLockApps") else t("appsCount", "n" to iso("${settings.lockApps.size}")), onClick = onLockApps)
+        HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 6.dp))
+        Text(t("lockSites"), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Ltr {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = site,
+                    onValueChange = {
+                        site = it
+                        bad = false
+                    },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    placeholder = { Text("example.com", color = c.muted) },
+                    shape = RoundedCornerShape(14.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.button, unfocusedBorderColor = c.line, cursorColor = c.button),
+                )
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = {
+                    val name = siteName(site)
+                    if (name == null) {
+                        bad = true
+                    } else {
+                        site = ""
+                        change { s -> if (name in s.lockSites) s else s.copy(lockSites = s.lockSites + name, lockEnabled = true) }
+                    }
+                }) { Text(t("addSite"), color = c.accent, fontWeight = FontWeight.Bold) }
+            }
+        }
+        if (bad) MessageText(t("badSite"), true)
+        if (settings.lockSites.isEmpty()) Text(t("noSites"), color = c.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+        for (name in settings.lockSites) {
+            Ltr {
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(name, color = c.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    CircleIconButton(R.drawable.ic_close, t("remove"), size = 30.dp, background = c.cardHigh) { change { s -> s.copy(lockSites = s.lockSites - name) } }
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(t("lockNote"), color = c.muted, fontSize = 11.sp, lineHeight = 17.sp)
+    }
+}
+
+// A site the user typed (a name, a link, "*.site.com") as a host name, or null; as the desktop app reads it.
+fun siteName(input: String): String? {
+    var s = input.trim().lowercase()
+    if (s.isEmpty()) return null
+    s = s.replace(Regex("^[a-z][a-z0-9+.-]*://"), "").removePrefix("*.")
+    s = s.split(Regex("[/?#:\\s]"))[0].trimEnd('.')
+    s = s.removePrefix("www.")
+    if (s.length > 200 || !s.contains('.')) return null
+    val label = Regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    return if (s.split('.').all { label.matches(it) } && !Regex("^\\d+(\\.\\d+)*$").matches(s)) s else null
 }
 
 // The bell's list as a page: the subscription's announcement, then the panel's notices newest first.
@@ -186,16 +261,16 @@ fun AccountPage(p: Profile, settings: Settings, activity: MainActivity) {
     var confirmLogout by remember { mutableStateOf(false) }
     var reporting by remember { mutableStateOf(false) }
     val a = p.account
-    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         PageTitle(t("account"))
         DtCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(58.dp).clip(CircleShape).background(c.button), contentAlignment = Alignment.Center) {
-                    Text(a.username.firstOrNull()?.uppercase() ?: "?", color = c.onButton, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Box(Modifier.size(44.dp).clip(CircleShape).background(c.button), contentAlignment = Alignment.Center) {
+                    Text(a.username.firstOrNull()?.uppercase() ?: "?", color = c.onButton, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 }
-                Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Ltr { Text(a.username, color = c.text, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Ltr { Text(a.username, color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     if (p.title.isNotEmpty()) Text(p.title, color = c.muted, fontSize = 14.sp)
                 }
                 StatusPill(if (a.enabled) t("active") else t("inactive"), a.enabled)
@@ -210,7 +285,8 @@ fun AccountPage(p: Profile, settings: Settings, activity: MainActivity) {
             InfoLine("${t("uploaded")} / ${t("downloaded")}", iso("${bytes(a.upload)} / ${bytes(a.download)}"))
             if (a.deviceLimit > 0) InfoLine(t("devices"), iso("${a.devices} / ${a.deviceLimit}"))
         }
-        DtCard(padding = 14.dp) {
+        AccountsCard(activity)
+        DtCard(padding = 10.dp) {
             NavRow(R.drawable.ic_refresh, t("refreshSub"), t("updatedAgo", "when" to ago(t, fetchedAt)), trailing = {
                 if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), color = c.accent, strokeWidth = 2.dp)
             }) {
@@ -278,6 +354,116 @@ fun AccountPage(p: Profile, settings: Settings, activity: MainActivity) {
 }
 
 // Sends the log since the app started to the panel, which files it under this account; or copies or shares it.
+// Every subscription signed in on this phone: switch, add with a link, remove.
+@Composable
+private fun AccountsCard(activity: MainActivity) {
+    val t = LocalT.current
+    val c = LocalDt.current
+    val scope = rememberCoroutineScope()
+    val accounts by Repo.accounts.collectAsState()
+    val active = Repo.activeId()
+    var adding by remember { mutableStateOf(false) }
+    var link by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf<Pair<String, team.datacraft.dtclient.data.AccountEntry>?>(null) }
+    fun run(id: String, job: suspend () -> Unit) {
+        busy = id
+        error = ""
+        scope.launch {
+            try {
+                job()
+                adding = false
+                link = ""
+            } catch (e: team.datacraft.dtclient.data.ApiException) {
+                error = t.error(e.code)
+            } catch (e: Exception) {
+                error = t.error("unexpected")
+            } finally {
+                busy = ""
+            }
+        }
+    }
+    DtCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(t("accounts"), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            if (!adding) TextButton(onClick = { adding = true }) { Text(t("addAccount"), color = c.accent, fontWeight = FontWeight.Bold) }
+        }
+        for (a in accounts) {
+            val on = a.id == active
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (on) c.secured else c.line))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Ltr { Text(a.username, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Ltr { Text(listOf(a.title, a.host).filter { it.isNotEmpty() }.joinToString(" · "), color = c.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+                if (on) {
+                    StatusPill(t("inUse"), true)
+                } else if (busy == a.id) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = c.accent, strokeWidth = 2.dp)
+                } else {
+                    TextButton(onClick = { confirm = "switch" to a }, enabled = busy.isEmpty()) { Text(if (a.signedIn) t("switchTo") else t("signInAgain"), color = c.accent) }
+                    CircleIconButton(R.drawable.ic_close, t("removeAccount"), size = 30.dp, background = c.cardHigh) { confirm = "remove" to a }
+                }
+            }
+        }
+        if (adding) {
+            Spacer(Modifier.height(6.dp))
+            Text(t("addAccountHint"), color = c.muted, fontSize = 12.sp, lineHeight = 18.sp)
+            Spacer(Modifier.height(6.dp))
+            Ltr {
+                OutlinedTextField(
+                    value = link,
+                    onValueChange = { link = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(t("subLink")) },
+                    shape = RoundedCornerShape(14.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.button, unfocusedBorderColor = c.line, cursorColor = c.button),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrimaryButton(t("signIn"), Modifier.weight(1f), enabled = link.isNotBlank() && busy.isEmpty(), loading = busy == "new") {
+                    val code = team.datacraft.dtclient.data.SignIn.parse(link)
+                    if (code == null) {
+                        error = t.error("bad_link")
+                    } else {
+                        activity.disconnect()
+                        run("new") { Repo.login(code.subLink, code.username) }
+                    }
+                }
+                SecondaryButton(t("cancel"), Modifier.weight(1f)) {
+                    adding = false
+                    error = ""
+                }
+            }
+        }
+        MessageText(error, true)
+    }
+    confirm?.let { (what, a) ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            containerColor = c.card,
+            text = { Text(if (what == "switch") t("switchConfirm") else t("removeAccountConfirm", "user" to iso(a.username)), color = c.text) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = null
+                    if (what == "switch") {
+                        activity.disconnect()
+                        run(a.id) { Repo.switchAccount(a.id) }
+                    } else {
+                        run(a.id) { Repo.removeAccount(a.id) }
+                    }
+                }) { Text(if (what == "switch") t("switchTo") else t("removeAccount"), color = if (what == "switch") c.accent else Palette.bad, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text(t("cancel"), color = c.text) } },
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportSheet(supportUrl: String, onClose: () -> Unit) {
@@ -383,7 +569,7 @@ private fun InfoLine(label: String, value: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppPicker(settings: Settings, onClose: () -> Unit) {
+fun AppPicker(settings: Settings, forLock: Boolean = false, onClose: () -> Unit) {
     val t = LocalT.current
     val c = LocalDt.current
     val context = LocalContext.current
@@ -400,14 +586,19 @@ fun AppPicker(settings: Settings, onClose: () -> Unit) {
         }
     }
     ModalBottomSheet(onDismissRequest = onClose, containerColor = c.card) {
-        Text(t("splitTunneling"), color = c.text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
-        Text(t("splitHint"), color = c.muted, fontSize = 13.sp, lineHeight = 21.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+        Text(t(if (forLock) "lockApps" else "splitTunneling"), color = c.text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
+        Text(t(if (forLock) "lockHint" else "splitHint"), color = c.muted, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
         if (apps.isEmpty()) CircularProgressIndicator(Modifier.padding(24.dp).align(Alignment.CenterHorizontally), color = c.accent)
         LazyColumn(Modifier.padding(horizontal = 12.dp)) {
             items(apps, key = { it.first }) { (pkg, label) ->
-                val on = pkg in settings.splitApps
+                val on = pkg in (if (forLock) settings.lockApps else settings.splitApps)
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { Repo.updateSettings { s -> s.copy(splitApps = if (on) s.splitApps - pkg else s.splitApps + pkg) } }.padding(8.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
+                        Repo.updateSettings { s ->
+                            if (forLock) s.copy(lockApps = if (on) s.lockApps - pkg else s.lockApps + pkg, lockEnabled = s.lockEnabled || !on)
+                            else s.copy(splitApps = if (on) s.splitApps - pkg else s.splitApps + pkg)
+                        }
+                    }.padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(checked = on, onCheckedChange = null, colors = CheckboxDefaults.colors(checkedColor = c.button, checkmarkColor = c.onButton, uncheckedColor = c.muted))

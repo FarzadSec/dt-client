@@ -86,7 +86,8 @@ fun SignedOutScreen() {
     var page by rememberSaveable { mutableStateOf("welcome") }
     var scanFrom by rememberSaveable { mutableStateOf("welcome") }
     var link by rememberSaveable { mutableStateOf(Repo.lastSubLink()) }
-    var username by rememberSaveable { mutableStateOf(Repo.lastUsername()) }
+    // Only from a dtconnect:// link that names it; otherwise the app reads the account from the link.
+    var username by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var info by remember { mutableStateOf("") }
@@ -112,18 +113,14 @@ fun SignedOutScreen() {
         }
     }
 
+    // The link alone signs in; a dtconnect:// link's username, if it has one, goes along.
     fun use(code: SignInCode) {
         link = code.subLink
+        username = code.username
         error = ""
         info = ""
-        if (code.complete) {
-            username = code.username
-            page = "login"
-            signIn(code.subLink, code.username)
-        } else {
-            info = t("enterUsername")
-            page = "login"
-        }
+        page = "login"
+        signIn(code.subLink, code.username)
     }
 
     fun scanned(text: String) {
@@ -162,9 +159,10 @@ fun SignedOutScreen() {
         "scan" -> ScannerScreen(message = "", onResult = { scanned(it) }, onImage = { pickImage.launch("image/*") }, onClose = { page = scanFrom })
         "login" -> LoginPage(
             link = link,
-            onLink = { link = it },
-            username = username,
-            onUsername = { username = it },
+            onLink = {
+                link = it
+                username = ""
+            },
             error = shownError,
             info = info,
             busy = busy,
@@ -336,8 +334,6 @@ private fun HelpSheet(onClose: () -> Unit) {
 private fun LoginPage(
     link: String,
     onLink: (String) -> Unit,
-    username: String,
-    onUsername: (String) -> Unit,
     error: String,
     info: String,
     busy: Boolean,
@@ -383,28 +379,18 @@ private fun LoginPage(
                     singleLine = true,
                     shape = RoundedCornerShape(18.dp),
                     colors = fieldColors,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                     trailingIcon = {
                         IconButton(onClick = { clipboard.getText()?.text?.let(onPaste) }) {
                             Icon(painterResource(R.drawable.ic_paste), t("paste"), tint = c.accent)
                         }
                     },
                 )
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = onUsername,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(t("username")) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    colors = fieldColors,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
-                )
             }
         }
         MessageText(info, false)
         MessageText(error, true)
-        PrimaryButton(if (busy) t("signingIn") else t("signIn"), enabled = link.isNotBlank() && username.isNotBlank(), loading = busy, onClick = onSubmit)
+        PrimaryButton(if (busy) t("signingIn") else t("signIn"), enabled = link.isNotBlank(), loading = busy, onClick = onSubmit)
         Row(verticalAlignment = Alignment.CenterVertically) {
             HorizontalDivider(Modifier.weight(1f), color = c.line)
             Text(t("or"), color = c.muted, modifier = Modifier.padding(horizontal = 12.dp))
