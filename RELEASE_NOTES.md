@@ -1,3 +1,17 @@
+**DT Connect 1.2.0**
+
+- **Sign in with the subscription link alone.** No username to type: the app reads the account from the link. A sign-in QR code or `dtconnect://` link still works.
+- **Several accounts on one device.** Settings → Account on the desktop and the Account tab on Android list every subscription signed in on the device; add another with its link, switch between them, or remove one.
+- **Real ping.** The delay shown for each server is measured the way the panel's outbound test does it: a request to Google's empty page (`generate_204`) through each V2Ray and WireGuard config, and for OpenVPN and L2TP/IPsec the server's own answer to the first handshake message. A relay in front of a server no longer makes it look close.
+- **Traffic is checked, not just the connection.** A connection counts only once the test page comes back through it. While connected, the app keeps checking: if traffic stops passing, **Auto** switches to another protocol by itself, and a chosen protocol shows a warning to switch.
+- **Live chart** of download, upload and ping in the map card while connected; a red **Timeout** when the test page does not come back.
+- **Protocol and location on the home page**, in the map card, where they are seen.
+- **Leak protection**: strict routes on the V2Ray/WireGuard tunnel by default (DNS and everything else stay inside), and IPv6 held back while OpenVPN or L2TP (which carry IPv4 only) is connected, so nothing leaves from the real address. Android already sends everything, IPv6 included, into the tunnel.
+- **App and site lock**: pick apps and sites that must not be used without the VPN. While it is off, locked sites do not open and locked apps are closed (Android: their traffic is held back); the app offers **Connect now** or a 15-minute skip.
+- **Plan warnings**: two days or 3 GB before the plan ends (and once it has), a warning every time the app is opened, and a notification when it happens in the background.
+- **The subscription is fetched every time the app is opened**, then every 10 minutes by the clock (also after the computer or phone wakes), with no cache in between. The home page shows when it was last fetched.
+- **Android: a more compact layout** (smaller cards, map, buttons and type), and round flag images that sit straight in their circles.
+
 **DT Connect 1.1.4**
 
 - **macOS: browsers work over V2Ray and WireGuard.** The Mac kept asking its network's DNS server (usually the router) for names, outside the tunnel, so filtered sites came back with the filter's addresses and did not open, while Telegram, which needs no DNS, worked. While connected with V2Ray, WireGuard or OpenVPN, the app now sets the Mac's DNS servers to the ones in the DNS setting (1.1.1.1 and 8.8.8.8 by default), which go through the tunnel, and puts the previous ones back when it disconnects. If the app or the Mac stopped while connected, they are put back the next time its service starts.

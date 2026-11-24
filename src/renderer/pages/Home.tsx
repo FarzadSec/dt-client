@@ -131,7 +131,12 @@ export function Home(props: Props) {
               <h1>{title}</h1>
               <div className={`status-text ${connected ? 'ok' : busy ? 'busy' : 'bad'}`}>
                 {stateText}
-                {connected && status.since ? <span dir="ltr"> · {clock(now - status.since)}</span> : null}
+                {connected && status.since ? (
+                  <>
+                    {' · '}
+                    <span dir="ltr">{clock(now - status.since)}</span>
+                  </>
+                ) : null}
               </div>
               {(connected || status.state === 'connecting') && status.protocol && (
                 <div className="status-sub" dir="ltr">

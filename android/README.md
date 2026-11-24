@@ -4,7 +4,7 @@ Android 5.0 and later, on every processor family (arm64-v8a, armeabi-v7a, x86_64
 
 ## Screens
 
-- **Welcome**: the DT Connect mark over the server map, *Log in*, *Scan sign-in QR code* and where the sign-in details are. The sign-in form takes the subscription link and the username, a pasted sign-in link, the camera or a QR picture.
+- **Welcome**: the DT Connect mark over the server map, *Log in*, *Scan sign-in QR code* and where the sign-in details are. The sign-in form takes the subscription link alone (or a pasted sign-in link), the camera or a QR picture.
 - **Home**: location search, the map card (glides to the chosen or connected server, the state with its timer and the one button: *Secure my connection* / *Disconnect*), recent locations (or the quickest ones before the first connection), the plan (days and traffic left), *Secured by VPN* (hours connected on each day of this week, kept on the phone only), the connection tools and settings.
 - **Locations**: every location grouped by country with its flag and ping, countries with several cities opening to list them, a protocol filter and *Test ping*.
 - **Protection**: protocol, Iranian sites without VPN, ad blocking, kill switch (Android's own), apps without VPN, DNS.
