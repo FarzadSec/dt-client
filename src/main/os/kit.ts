@@ -24,5 +24,10 @@ export interface SystemKit {
   restoreZone(previous: string | null): Promise<void>;
   protectWebrtc(): Promise<Record<string, string | null>>;
   restoreWebrtc(backup: Record<string, string | null>): Promise<void>;
+  // macOS: the system's resolvers set to ones the tunnel carries while connected (nothing else sends
+  // DNS into it there). What they were is kept in backupFile until restoreDns, so a crash can be undone.
+  // applyDns gives back the network services it changed; restoreDns, whether there was anything to undo.
+  applyDns?(servers: string[], backupFile: string): Promise<string[]>;
+  restoreDns?(backupFile: string): Promise<boolean>;
   tunName?: string;
 }

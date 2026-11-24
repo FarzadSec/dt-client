@@ -1,3 +1,7 @@
+**DT Connect 1.1.4**
+
+- **macOS: browsers work over V2Ray and WireGuard.** The Mac kept asking its network's DNS server (usually the router) for names, outside the tunnel, so filtered sites came back with the filter's addresses and did not open, while Telegram, which needs no DNS, worked. While connected with V2Ray, WireGuard or OpenVPN, the app now sets the Mac's DNS servers to the ones in the DNS setting (1.1.1.1 and 8.8.8.8 by default), which go through the tunnel, and puts the previous ones back when it disconnects. If the app or the Mac stopped while connected, they are put back the next time its service starts.
+
 **DT Connect 1.1.3**
 
 - Downloads now come from the DataCraft download page, [github.com/DataCraft-Team/DT-Connect](https://github.com/DataCraft-Team/DT-Connect).

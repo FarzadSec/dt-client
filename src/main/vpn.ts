@@ -8,7 +8,7 @@ import { candidates, type Candidate } from './candidates';
 import { l2tpAccount } from './configs/l2tp';
 import { openvpnArgs, openvpnProfile, openvpnPushedAddress, openvpnUdp, unsafeOpenvpnDirective } from './configs/openvpn';
 import { singboxTunConfig } from './configs/singbox';
-import { dnsServers, proxyOutboundFor, serverNames, xrayConfig } from './configs/xray';
+import { dnsServers, proxyOutboundFor, serverNames, systemResolvers, xrayConfig } from './configs/xray';
 import { EngineProcess, waitForLine } from './engines/process';
 import { freePort, probeThroughProxy, waitForPort } from './health';
 import type { LogFn } from './log';
@@ -303,6 +303,9 @@ export class Vpn extends EventEmitter {
   private attempt = 0;
   private zoneBackup: string | null = null;
   private webrtcBackup: Record<string, string | null> = {};
+  // System DNS changes (macOS), run one at a time in the order they were asked for.
+  private dnsQueue: Promise<void> = Promise.resolve();
+  private readonly dnsBackup: string;
 
   constructor(
     private readonly paths: VpnPaths,
@@ -311,9 +314,34 @@ export class Vpn extends EventEmitter {
   ) {
     super();
     fs.mkdirSync(paths.work, { recursive: true });
+    this.dnsBackup = path.join(paths.work, 'dns-backup.json');
     // A WireGuard tunnel left by a run that ended without disconnecting (a crash, a power cut).
     const tools = kit.os === 'windows' ? wireguardTools(paths.bin) : null;
     if (tools) void removeTunnel(tools, log);
+    // Likewise the system's resolvers, still pointed at the tunnel.
+    void this.restoreSystemDns();
+  }
+
+  private queueDns(task: () => Promise<void>): Promise<void> {
+    this.dnsQueue = this.dnsQueue.then(task).catch((err: unknown) => this.log('vpn', `system DNS: ${err instanceof Error ? err.message : String(err)}`));
+    return this.dnsQueue;
+  }
+
+  // Xray (V2Ray and WireGuard) and OpenVPN tunnels; L2TP sets its own.
+  private pointSystemDns(connection: Connection, settings: Settings): Promise<void> {
+    if (!this.kit.applyDns || (connection.engine !== 'xray' && connection.engine !== 'openvpn')) return Promise.resolve();
+    const servers = systemResolvers(settings.dns);
+    return this.queueDns(async () => {
+      const services = (await this.kit.applyDns?.(servers, this.dnsBackup)) ?? [];
+      this.log('vpn', `system DNS set to ${servers.join(', ')} while connected (${services.length > 0 ? services.join(', ') : 'no network service took it'})`);
+    });
+  }
+
+  private restoreSystemDns(): Promise<void> {
+    if (!this.kit.restoreDns) return Promise.resolve();
+    return this.queueDns(async () => {
+      if (await this.kit.restoreDns?.(this.dnsBackup)) this.log('vpn', 'system DNS restored');
+    });
   }
 
   status(): Status {
@@ -370,7 +398,11 @@ export class Vpn extends EventEmitter {
       }
       this.connection = connection;
       connection.onLost((blocking) => void this.dropped(blocking));
+      // Queued before anything below can wait, so a disconnect's restore always comes after it.
+      await this.pointSystemDns(connection, settings);
       await this.applyPrivacy(profile, settings, candidate.config.locationId ?? null);
+      // A disconnect while those ran has already stopped the connection and set the status.
+      if (attempt !== this.attempt) return this.current;
       return this.set({
         state: 'connected',
         locationId,
@@ -415,6 +447,7 @@ export class Vpn extends EventEmitter {
     this.webrtcBackup = {};
     await this.kit.restoreZone(this.zoneBackup);
     this.zoneBackup = null;
+    await this.restoreSystemDns();
   }
 
   private async dropped(blocking: boolean): Promise<void> {

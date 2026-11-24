@@ -22,6 +22,13 @@ export function dnsServers(setting: string): string[] {
   return list.length > 0 ? list : defaultDns;
 }
 
+// The system's resolvers while connected on macOS: the setting's public IPv4 addresses, since a
+// private one would stay outside the tunnel and OpenVPN's tunnel has no IPv6; the default otherwise.
+export function systemResolvers(setting: string): string[] {
+  const list = dnsServers(setting).filter((s) => net.isIPv4(s) && isPublicAddress(s));
+  return list.length > 0 ? list : defaultDns;
+}
+
 type Obj = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
