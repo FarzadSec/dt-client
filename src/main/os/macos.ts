@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+import { applyDns, restoreDns } from '../system/macDns';
 import { run } from '../system/run';
 import type { SystemKit } from './kit';
 
@@ -28,4 +29,6 @@ export const macosKit: SystemKit = {
   // Chrome on macOS takes policies only through a configuration profile; nothing to set here.
   protectWebrtc: async () => ({}),
   restoreWebrtc: async () => undefined,
+  applyDns,
+  restoreDns,
 };
