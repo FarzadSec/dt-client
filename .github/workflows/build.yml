@@ -170,6 +170,11 @@ jobs:
           bin=resources/bin/linux-x64
           for f in smoke/xray-*.json; do $bin/xray run -test -c "$f"; done
           $bin/sing-box check -c smoke/tun.json
+      # The real delay test through the bundled Xray, and the OpenVPN handshake probe against real servers.
+      - name: Delay tests with the real engines
+        run: |
+          sudo apt-get install -y openvpn
+          XRAY_BIN="$PWD/resources/bin/linux-x64/xray" OPENVPN_BIN=/usr/sbin/openvpn npx vitest run test/delay.int.test.ts test/handshake.int.test.ts
       - name: Build deb, rpm and pacman packages (x64 and arm64)
         run: npx electron-builder --linux --x64 --arm64 --publish never
       # The account behind this repository must not reach customers, by way of a config or of git.

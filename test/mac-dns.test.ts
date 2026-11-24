@@ -125,7 +125,7 @@ describe('the connection and the system DNS', () => {
       },
     } as unknown as SystemKit;
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-vpn-'));
-    const vpn = new Vpn({ bin: path.join(work, 'bin'), work }, kit);
+    const vpn = new Vpn({ bin: path.join(work, 'bin'), work }, kit, undefined, { checkTraffic: async () => true, live: false });
     (vpn as unknown as { connectionFor: () => Connection }).connectionFor = () => connection;
     const statuses: Status[] = [];
     vpn.on('status', (s: Status) => {

@@ -1,5 +1,5 @@
 import type { Os } from './platform';
-import type { Status } from './types';
+import type { LiveSample, Status } from './types';
 
 // On Linux and macOS the engines run in a root helper (a systemd service or a LaunchDaemon);
 // the app talks to it with one JSON message per line over this socket.
@@ -10,7 +10,7 @@ export const helperSocket: Record<Exclude<Os, 'windows'>, string> = {
 
 export const helperProtocolVersion = 1;
 
-export type HelperMethod = 'hello' | 'status' | 'connect' | 'disconnect' | 'logs';
+export type HelperMethod = 'hello' | 'status' | 'connect' | 'disconnect' | 'logs' | 'lockSites';
 
 export interface HelperRequest {
   id: number;
@@ -18,7 +18,11 @@ export interface HelperRequest {
   params?: unknown;
 }
 
-export type HelperMessage = { id: number; ok: true; value: unknown } | { id: number; ok: false; code: string } | { event: 'status'; value: Status };
+export type HelperMessage =
+  | { id: number; ok: true; value: unknown }
+  | { id: number; ok: false; code: string }
+  | { event: 'status'; value: Status }
+  | { event: 'live'; value: LiveSample };
 
 // Splits a byte stream into lines; a line longer than maxBytes ends the stream.
 export function lineSplitter(onLine: (line: string) => void, onOverflow: () => void, maxBytes = 4 << 20): (chunk: Buffer) => void {

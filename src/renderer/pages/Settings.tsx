@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 
-import type { AppProfile, ProtocolChoice, Settings, SplitApp } from '../../shared/types';
+import type { AccountSummary, AppProfile, ProtocolChoice, Settings, SplitApp } from '../../shared/types';
+import { siteName } from '../../shared/sites';
 import { Row, Select, Switch } from '../components/Controls';
 import { EyeOffIcon, InfoIcon, LifebuoyIcon, LockIcon, PlusIcon, SlidersIcon, SplitIcon, TrashIcon, UserIcon, WifiIcon } from '../components/Icons';
 import { bytes, daysLeft } from '../format';
 import { errorText, type Translate } from '../i18n';
 import logo from '../logo.svg';
+import { SignInForm } from './Welcome';
 
-export type Section = 'general' | 'account' | 'connection' | 'killswitch' | 'split' | 'privacy' | 'support' | 'about';
+export type Section = 'general' | 'account' | 'connection' | 'killswitch' | 'split' | 'privacy' | 'lock' | 'support' | 'about';
 
 interface Props {
   t: Translate;
@@ -18,6 +20,8 @@ interface Props {
   onChange: (patch: Partial<Settings>) => void;
   onRefresh: () => void;
   onLogout: () => void;
+  // Another account added, switched to or removed: its profile, or null when none is left.
+  onAccountChanged: (profile: AppProfile | null) => void;
 }
 
 function Group({ children }: { children: ReactNode }) {
@@ -33,6 +37,7 @@ export function SettingsPage(props: Props) {
     ['killswitch', LockIcon, t('killSwitch')],
     ['split', SplitIcon, t('splitTunneling')],
     ['privacy', EyeOffIcon, t('privacy')],
+    ['lock', () => <LockIcon />, t('lock')],
     ['support', LifebuoyIcon, t('supportSection')],
     ['about', InfoIcon, t('about')],
   ];
@@ -55,6 +60,7 @@ export function SettingsPage(props: Props) {
         {section === 'killswitch' && <KillSwitch {...props} />}
         {section === 'split' && <Split {...props} />}
         {section === 'privacy' && <Privacy {...props} />}
+        {section === 'lock' && <Lock {...props} />}
         {section === 'support' && <Support {...props} />}
         {section === 'about' && <About {...props} />}
       </div>
@@ -104,7 +110,8 @@ function General({ t, settings, onChange }: Props) {
   );
 }
 
-function Account({ t, profile, onRefresh, onLogout }: Props) {
+function Account(props: Props) {
+  const { t, profile, onRefresh, onLogout } = props;
   const a = profile.account;
   const used = a.upload + a.download;
   let expiry = t('never');
@@ -139,6 +146,94 @@ function Account({ t, profile, onRefresh, onLogout }: Props) {
           {t('logout')}
         </button>
       </div>
+      <Accounts {...props} />
+    </>
+  );
+}
+
+// Every subscription signed in on this device: switch between them, add one with its link, remove one.
+function Accounts({ t, profile, onAccountChanged }: Props) {
+  const [list, setList] = useState<AccountSummary[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const load = () => void window.dt.accounts().then(setList);
+  useEffect(load, [profile]);
+
+  const act = async (id: string, job: () => Promise<AppProfile | null>) => {
+    setBusy(id);
+    setError('');
+    try {
+      onAccountChanged(await job());
+    } catch (err) {
+      setError(errorText(t, (err as Error).message));
+    } finally {
+      setBusy('');
+      load();
+    }
+  };
+  const switchTo = (acc: AccountSummary) => {
+    if (!window.confirm(t('switchConfirm'))) return;
+    void act(acc.id, () => window.dt.switchAccount(acc.id));
+  };
+  const remove = (acc: AccountSummary) => {
+    if (!window.confirm(t('removeAccountConfirm', { user: acc.username }))) return;
+    void act(acc.id, () => window.dt.removeAccount(acc.id));
+  };
+
+  return (
+    <>
+      <div className="section-head">
+        <h3 className="group-title">{t('accounts')}</h3>
+        {!adding && (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAdding(true)}>
+            <PlusIcon /> {t('addAccount')}
+          </button>
+        )}
+      </div>
+      <Group>
+        {list.map((acc) => (
+          <Row
+            key={acc.id}
+            title={
+              <span className="app-row">
+                <span className="account-dot" data-on={acc.active} />
+                <span dir="ltr">{acc.username}</span>
+              </span>
+            }
+            hint={<span dir="ltr">{[acc.title, acc.host].filter(Boolean).join(' · ')}</span>}
+          >
+            {acc.active ? (
+              <span className="pill ok">{t('inUse')}</span>
+            ) : (
+              <button type="button" className="btn btn-secondary btn-sm" disabled={busy !== ''} onClick={() => switchTo(acc)}>
+                {busy === acc.id ? '…' : acc.signedIn ? t('switchTo') : t('signInAgain')}
+              </button>
+            )}
+            {!acc.active && (
+              <button type="button" className="icon-btn" aria-label={t('remove')} disabled={busy !== ''} onClick={() => remove(acc)}>
+                <TrashIcon />
+              </button>
+            )}
+          </Row>
+        ))}
+        {adding && (
+          <div className="add-account">
+            <p className="muted">{t('addAccountHint')}</p>
+            <SignInForm
+              t={t}
+              onSignedIn={(p) => {
+                setAdding(false);
+                onAccountChanged(p);
+                load();
+              }}
+              onCancel={() => setAdding(false)}
+              cancelLabel={t('cancel')}
+            />
+          </div>
+        )}
+        {error && <div className="banner error">{error}</div>}
+      </Group>
     </>
   );
 }
@@ -239,6 +334,9 @@ function Split({ t, settings, onChange }: Props) {
 function Privacy({ t, settings, onChange }: Props) {
   return (
     <Group>
+      <Row title={t('leakProtection')} hint={t('leakProtectionHint')}>
+        <Switch label={t('leakProtection')} checked={settings.leakProtection} onChange={(leakProtection) => onChange({ leakProtection })} />
+      </Row>
 {window.dt.os !== 'macos' && (
               <Row title={t('webrtc')} hint={t('webrtcHint')}>
           <Switch label={t('webrtc')} checked={settings.webrtcProtection} onChange={(webrtcProtection) => onChange({ webrtcProtection })} />
@@ -248,6 +346,76 @@ function Privacy({ t, settings, onChange }: Props) {
         <Switch label={t('timezone')} checked={settings.timezoneSpoof} onChange={(timezoneSpoof) => onChange({ timezoneSpoof })} />
       </Row>
     </Group>
+  );
+}
+
+// Apps and sites that must not be used without the VPN.
+function Lock({ t, settings, onChange }: Props) {
+  const [site, setSite] = useState('');
+  const [bad, setBad] = useState(false);
+  const addApp = async () => {
+    const app = await window.dt.pickLockApp();
+    if (app && !settings.lockApps.some((a) => a.name === app.name)) onChange({ lockApps: [...settings.lockApps, app], lockEnabled: true });
+  };
+  const addSite = () => {
+    const name = siteName(site);
+    if (!name) {
+      setBad(true);
+      return;
+    }
+    setBad(false);
+    setSite('');
+    if (!settings.lockSites.includes(name)) onChange({ lockSites: [...settings.lockSites, name], lockEnabled: true });
+  };
+  return (
+    <>
+      <Group>
+        <Row title={t('lockEnabled')} hint={t('lockEnabledHint')}>
+          <Switch label={t('lockEnabled')} checked={settings.lockEnabled} onChange={(lockEnabled) => onChange({ lockEnabled })} />
+        </Row>
+      </Group>
+      <div className="section-head">
+        <h3 className="group-title">{t('lockApps')}</h3>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => void addApp()}>
+          <PlusIcon /> {t('addApp')}
+        </button>
+      </div>
+      <Group>
+        {settings.lockApps.length === 0 && <div className="empty small">{t('noApps')}</div>}
+        {settings.lockApps.map((app) => (
+          <Row key={app.name} title={<span className="app-row"><AppIcon path={app.path} /><span dir="ltr">{app.name}</span></span>} hint={<span dir="ltr">{app.path}</span>}>
+            <button type="button" className="icon-btn" aria-label={t('remove')} onClick={() => onChange({ lockApps: settings.lockApps.filter((a) => a.name !== app.name) })}>
+              <TrashIcon />
+            </button>
+          </Row>
+        ))}
+      </Group>
+      <h3 className="group-title">{t('lockSites')}</h3>
+      <Group>
+        <form
+          className="input-row site-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            addSite();
+          }}
+        >
+          <input className="text-input" dir="ltr" value={site} placeholder={t('sitePlaceholder')} onChange={(e) => setSite(e.target.value)} />
+          <button type="submit" className="btn btn-secondary">
+            <PlusIcon /> {t('addSite')}
+          </button>
+        </form>
+        {bad && <div className="banner error">{t('badSite')}</div>}
+        {settings.lockSites.length === 0 && <div className="empty small">{t('noSites')}</div>}
+        {settings.lockSites.map((name) => (
+          <Row key={name} title={<span dir="ltr">{name}</span>}>
+            <button type="button" className="icon-btn" aria-label={t('remove')} onClick={() => onChange({ lockSites: settings.lockSites.filter((s) => s !== name) })}>
+              <TrashIcon />
+            </button>
+          </Row>
+        ))}
+      </Group>
+      {window.dt.os === 'linux' && <p className="muted paragraph">{t('lockLinuxNote')}</p>}
+    </>
   );
 }
 

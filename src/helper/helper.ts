@@ -8,8 +8,10 @@ import { osOf } from '../shared/platform';
 import { SessionLog } from '../main/log';
 import { linuxKit } from '../main/os/linux';
 import { macosKit } from '../main/os/macos';
+import { applyHostsLock } from '../main/system/hosts';
+import { run } from '../main/system/run';
 import { Vpn } from '../main/vpn';
-import { sanitizeConnect } from './sanitize';
+import { sanitizeConnect, sanitizeLock } from './sanitize';
 
 // Runs as root (systemd on Linux, launchd on macOS): the engines need it for the tunnel,
 // routes, DNS and timezone. The app itself runs as the user and asks over the socket.
@@ -23,6 +25,17 @@ fs.mkdirSync(work, { recursive: true, mode: 0o700 });
 // What the engines said, for the app's support report (the 'logs' request); redacted as it is written.
 const log = new SessionLog(800_000);
 log.write('helper', `DT Connect helper on ${os} ${process.platform} ${process.arch}, Node ${process.version}`);
+// Cached answers would keep a locked (or unlocked) site's old address.
+async function flushNames(): Promise<void> {
+  if (os === 'macos') {
+    await run('/usr/bin/dscacheutil', ['-flushcache']);
+    await run('/usr/bin/killall', ['-HUP', 'mDNSResponder']);
+  } else await run('resolvectl', ['flush-caches']);
+}
+
+// A lock left by an app that did not get to lift it (a crash, a power cut); the app sets it again.
+applyHostsLock([], '0.0.0.0');
+
 const vpn = new Vpn({ bin: path.join(__dirname, '..', 'bin'), work }, os === 'macos' ? macosKit : linuxKit, log.write);
 const clients = new Set<net.Socket>();
 
@@ -32,6 +45,9 @@ function send(socket: net.Socket, message: HelperMessage): void {
 
 vpn.on('status', (value) => {
   for (const socket of clients) send(socket, { event: 'status', value });
+});
+vpn.on('live', (value) => {
+  for (const socket of clients) send(socket, { event: 'live', value });
 });
 
 async function answer(req: HelperRequest): Promise<unknown> {
@@ -48,6 +64,12 @@ async function answer(req: HelperRequest): Promise<unknown> {
       return vpn.disconnect();
     case 'logs':
       return log.text();
+    case 'lockSites': {
+      const { sites, address } = sanitizeLock(req.params);
+      const ok = applyHostsLock(sites, address);
+      await flushNames();
+      return ok;
+    }
     default:
       throw new Error('bad_request');
   }

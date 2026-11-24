@@ -63,6 +63,17 @@ export interface SplitApp {
   path: string;
 }
 
+// A subscription the app has signed in with; signedIn is false once its session ended.
+export interface AccountSummary {
+  id: string;
+  username: string;
+  host: string;
+  title: string;
+  expiryTime: number;
+  signedIn: boolean;
+  active: boolean;
+}
+
 export interface Settings {
   language: Language;
   theme: Theme;
@@ -80,6 +91,13 @@ export interface Settings {
   startWithWindows: boolean;
   launchMinimized: boolean;
   notifications: boolean;
+  // DNS, IPv6 and other traffic kept from leaving around the tunnel (strict routes, IPv6 blocked).
+  leakProtection: boolean;
+  // Apps and sites that must not be used without the VPN: while it is off they are closed (apps) or
+  // do not open (sites), and the app offers to connect.
+  lockEnabled: boolean;
+  lockApps: SplitApp[];
+  lockSites: string[];
   locationId: number | null;
   dismissedAnnounce: string;
   // Banner keys the user closed, and what the bell had shown when last opened.
@@ -105,6 +123,10 @@ export const defaultSettings: Settings = {
   startWithWindows: false,
   launchMinimized: false,
   notifications: true,
+  leakProtection: true,
+  lockEnabled: false,
+  lockApps: [],
+  lockSites: [],
   locationId: null,
   dismissedAnnounce: '',
   dismissedNotices: [],
@@ -131,8 +153,24 @@ export interface Status {
 }
 
 export interface Session {
+  id: string;
   subLink: string;
   username: string;
+}
+
+// The connection's last second: bytes per second each way and the round trip of the test page
+// through the tunnel (null when it timed out; undefined when none was measured that second).
+export interface LiveSample {
+  at: number;
+  rx: number;
+  tx: number;
+  ms?: number | null;
+}
+
+// A locked app or site opened while the VPN was off.
+export interface LockHit {
+  kind: 'app' | 'site';
+  name: string;
 }
 
 // Time connected per local day (YYYY-MM-DD → seconds) and the locations connected to last.
@@ -157,8 +195,13 @@ export interface ProfileUpdate {
 export interface DtApi {
   os: 'windows' | 'linux' | 'macos';
   session(): Promise<Session | null>;
-  login(subLink: string, username: string): Promise<AppProfile>;
-  logout(): Promise<void>;
+  // username is optional: without it the app reads the subscription's account itself.
+  login(subLink: string, username?: string): Promise<AppProfile>;
+  // Signs out of the account in use; the answer is the next signed-in account's profile, if there is one.
+  logout(): Promise<AppProfile | null>;
+  accounts(): Promise<AccountSummary[]>;
+  switchAccount(id: string): Promise<AppProfile | null>;
+  removeAccount(id: string): Promise<AppProfile | null>;
   profile(refresh: boolean): Promise<AppProfile | null>;
   refresh(): Promise<ProfileUpdate | null>;
   settings(): Promise<Settings>;
@@ -172,6 +215,15 @@ export interface DtApi {
   appIcon(path: string): Promise<string | null>;
   openExternal(url: string): Promise<void>;
   onStatus(listener: (status: Status) => void): () => void;
+  // While connected: a sample a second for the live chart.
+  onLive(listener: (sample: LiveSample) => void): () => void;
+  liveHistory(): Promise<LiveSample[]>;
+  // The window was opened again from the tray (or the dock): the app fetches the profile and shows its warnings.
+  onShown(listener: () => void): () => void;
+  onLockHit(listener: (hit: LockHit) => void): () => void;
+  // Lets locked apps and sites through for this many minutes while the VPN is off.
+  lockSkip(minutes: number): Promise<void>;
+  pickLockApp(): Promise<SplitApp | null>;
   // The profile the app refreshes by itself every 10 minutes; signedOut carries the panel's code.
   onProfile(listener: (update: ProfileUpdate) => void): () => void;
   onSignedOut(listener: (code: string) => void): () => void;

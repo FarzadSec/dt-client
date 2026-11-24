@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 
 import { bannerNotices, noticeLog, unreadNotices } from '../shared/notices';
 import type { SignInCode } from '../shared/signin';
-import type { Activity, AppProfile, PingResult, ProfileUpdate, Settings, Status } from '../shared/types';
+import type { Activity, AppProfile, LiveSample, LockHit, PingResult, ProfileUpdate, ProtocolChoice, Settings, Status } from '../shared/types';
+import { planWarnings } from '../shared/warnings';
+import { LockDialog, PlanWarningDialog } from './components/Dialogs';
 import { BellIcon, GearIcon, GlobeIcon, HelpIcon, PinIcon, RefreshIcon, SearchIcon, UserIcon } from './components/Icons';
 import { NoticeBanners, NoticeCenter, Toast } from './components/Notices';
 import { translator } from './i18n';
@@ -42,6 +44,10 @@ export function App() {
   const [pinging, setPinging] = useState(false);
   const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'bad' } | null>(null);
   const [signInCode, setSignInCode] = useState<SignInCode | null>(null);
+  const [live, setLive] = useState<LiveSample[]>([]);
+  // The plan's warning, shown each time the app is opened (started, or brought back from the tray).
+  const [warnOpen, setWarnOpen] = useState(false);
+  const [lockHit, setLockHit] = useState<LockHit | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const systemDark = useSystemDark();
 
@@ -131,12 +137,34 @@ export function App() {
     });
     const offProfile = window.dt.onProfile(applyUpdate);
     const offSignedOut = window.dt.onSignedOut(signedOut);
+    const offLive = window.dt.onLive((sample) => setLive((prev) => [...prev.slice(-119), sample]));
+    const offLock = window.dt.onLockHit(setLockHit);
     return () => {
       offStatus();
       offProfile();
       offSignedOut();
+      offLive();
+      offLock();
     };
   }, [loadProfile, applyUpdate, signedOut]);
+
+  // Opening the app (its start, or the window from the tray) fetches the subscription at once and
+  // shows the plan's warning; the main process also fetches every 10 minutes by itself.
+  useEffect(() => {
+    if (!signedIn) return;
+    setWarnOpen(true);
+    return window.dt.onShown(() => {
+      setWarnOpen(true);
+      void refreshNow(false);
+      void refreshPings();
+    });
+  }, [signedIn, refreshNow]);
+
+  // The chart's last two minutes when the window opens on a connection already up.
+  useEffect(() => {
+    if (status.state === 'connected') void window.dt.liveHistory().then((h) => setLive((prev) => (prev.length >= h.length ? prev : h)));
+    else setLive([]);
+  }, [status.state, status.since]);
 
   // A dtconnect:// link the app was opened with: signed out it signs in; signed in to another account, it asks first.
   useEffect(() => {
@@ -158,12 +186,16 @@ export function App() {
     return window.dt.onSignInLink(() => void take());
   }, [signedIn, settings, signedOut]);
 
+  // The real delay test runs an engine for a few seconds, so every 5 minutes is enough; the refresh
+  // button on the locations page runs one at once.
   useEffect(() => {
     if (!signedIn) return;
     void refreshPings();
-    const timer = setInterval(() => void refreshPings(), 60_000);
+    const timer = setInterval(() => {
+      if (!document.hidden) void refreshPings();
+    }, 5 * 60_000);
     return () => clearInterval(timer);
-  }, [signedIn, profile, refreshPings]);
+  }, [signedIn, profile?.configs.length, refreshPings]);
 
   const log = useMemo(() => (profile ? noticeLog(profile) : []), [profile]);
 
@@ -200,6 +232,22 @@ export function App() {
     setStatus(await window.dt.connect(locationId));
   };
   const disconnect = () => void window.dt.disconnect().then(setStatus);
+  // A protocol picked while connected (or connecting) applies at once.
+  const changeProtocol = async (protocol: ProtocolChoice) => {
+    await saveSettings({ protocol });
+    if (status.state === 'connected' || status.state === 'connecting' || status.error === 'protocol_failed') setStatus(await window.dt.connect(settings.locationId));
+  };
+  const warnings = planWarnings(profile.account);
+  const signedOutOf = (next: AppProfile | null) => {
+    if (next) {
+      setProfile(next);
+      setFetchedAt(Date.now());
+      void refreshPings();
+    } else {
+      setProfile(null);
+      setSignedIn(false);
+    }
+  };
   const openSettings = (s: Section) => {
     setSection(s);
     setPage('settings');
@@ -289,8 +337,11 @@ export function App() {
             settings={settings}
             pings={pings}
             activity={activity}
+            live={live}
+            fetchedAt={fetchedAt}
             onConnect={(id) => void connectTo(id)}
             onDisconnect={disconnect}
+            onProtocol={(p) => void changeProtocol(p)}
             onAllLocations={() => setPage('locations')}
             onOpenSettings={openSettings}
           />
@@ -319,16 +370,29 @@ export function App() {
             onSection={setSection}
             onChange={(patch) => void saveSettings(patch)}
             onRefresh={() => void refreshNow(true)}
-            onLogout={() =>
-              void window.dt.logout().then(() => {
-                setProfile(null);
-                setSignedIn(false);
-              })
-            }
+            onLogout={() => void window.dt.logout().then(signedOutOf)}
+            onAccountChanged={signedOutOf}
           />
         )}
       </main>
       {toast && <Toast text={toast.text} kind={toast.kind} />}
+      {warnOpen && warnings.length > 0 && !lockHit && <PlanWarningDialog t={t} warnings={warnings} supportUrl={profile.supportUrl} onClose={() => setWarnOpen(false)} />}
+      {lockHit && (
+        <LockDialog
+          t={t}
+          hit={lockHit}
+          busy={status.state === 'connecting'}
+          onConnect={() => {
+            setLockHit(null);
+            void connectTo(settings.locationId);
+          }}
+          onSkip={() => {
+            setLockHit(null);
+            void window.dt.lockSkip(15);
+          }}
+          onClose={() => setLockHit(null)}
+        />
+      )}
     </div>
   );
 }
