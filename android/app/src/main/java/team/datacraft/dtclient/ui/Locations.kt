@@ -115,22 +115,22 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
     }
 
     Column(Modifier.fillMaxSize().background(c.background).statusBarsPadding().navigationBarsPadding()) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            CircleIconButton(R.drawable.ic_back, t("back"), size = 56.dp, background = Color.Transparent, onClick = onClose)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircleIconButton(R.drawable.ic_back, t("back"), size = 44.dp, background = Color.Transparent, onClick = onClose)
             Spacer(Modifier.width(10.dp))
             Row(
-                Modifier.weight(1f).height(60.dp).clip(RoundedCornerShape(50)).border(1.5.dp, c.line, RoundedCornerShape(50)).padding(horizontal = 18.dp),
+                Modifier.weight(1f).height(46.dp).clip(RoundedCornerShape(50)).border(1.dp, c.line, RoundedCornerShape(50)).padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(painterResource(R.drawable.ic_search), null, tint = c.muted, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(12.dp))
+                Icon(painterResource(R.drawable.ic_search), null, tint = c.muted, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
                 Box(Modifier.weight(1f)) {
-                    if (query.isEmpty()) Text(t("searchLocations"), color = c.muted, fontSize = 17.sp, maxLines = 1)
+                    if (query.isEmpty()) Text(t("searchLocations"), color = c.muted, fontSize = 15.sp, maxLines = 1)
                     BasicTextField(
                         value = query,
                         onValueChange = { query = it },
                         singleLine = true,
-                        textStyle = TextStyle(color = c.text, fontSize = 17.sp, fontFamily = Vazirmatn),
+                        textStyle = TextStyle(color = c.text, fontSize = 15.sp, fontFamily = Vazirmatn),
                         cursorBrush = SolidColor(c.button),
                         modifier = Modifier.fillMaxWidth().focusRequester(focus),
                     )
@@ -141,28 +141,28 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
             }
         }
         if (families.size > 1) {
-            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyRow(contentPadding = PaddingValues(horizontal = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(listOf("all") + families) { f ->
                     val on = f == filter
                     val label = when (f) {
                         "all" -> t("all")
-                        "xray" -> "Xray"
+                        "xray" -> "V2Ray"
                         "wireguard" -> "WireGuard"
                         else -> "OpenVPN"
                     }
                     Text(
                         label,
                         color = c.text,
-                        fontSize = 16.sp,
+                        fontSize = 14.sp,
                         fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
                         modifier = Modifier.clip(RoundedCornerShape(50)).border(1.5.dp, if (on) c.button else c.line, RoundedCornerShape(50))
-                            .clickable { filter = f }.padding(horizontal = 22.dp, vertical = 12.dp),
+                            .clickable { filter = f }.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 18.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(t("chooseLocation"), color = c.muted, fontSize = 17.sp, modifier = Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 10.dp, top = 12.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(t("chooseLocation"), color = c.muted, fontSize = 15.sp, modifier = Modifier.weight(1f))
             Row(
                 Modifier.clip(RoundedCornerShape(50)).clickable(enabled = !pinging) { scope.launch { Repo.ping() } }.padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -173,24 +173,24 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                     Icon(painterResource(R.drawable.ic_pulse), null, tint = c.accent, modifier = Modifier.size(18.dp))
                 }
                 Spacer(Modifier.width(6.dp))
-                Text(if (pinging) t("pinging") else t("pingNow"), color = c.accent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(if (pinging) t("pinging") else t("pingNow"), color = c.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
         }
-        LazyColumn(state = listState, modifier = Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)).background(c.card).fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.padding(horizontal = 14.dp).clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).background(c.card).fillMaxSize()) {
             if (q.isEmpty()) {
                 item(key = "fastest") {
-                    Row(Modifier.fillMaxWidth().clickable { connect(null) }.padding(horizontal = 18.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(46.dp).clip(CircleShape).background(c.button.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
-                            Icon(painterResource(R.drawable.ic_zap), null, tint = c.accent, modifier = Modifier.size(24.dp))
+                    Row(Modifier.fillMaxWidth().clickable { connect(null) }.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(36.dp).clip(CircleShape).background(c.button.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                            Icon(painterResource(R.drawable.ic_zap), null, tint = c.accent, modifier = Modifier.size(19.dp))
                         }
-                        Spacer(Modifier.width(16.dp))
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(t("fastest"), color = c.text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                            Text(t("bestPing"), color = c.muted, fontSize = 14.sp)
+                            Text(t("fastest"), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Text(t("bestPing"), color = c.muted, fontSize = 12.sp)
                         }
                         if (settings.locationId == null && active == null) Icon(painterResource(R.drawable.ic_check), null, tint = c.accent, modifier = Modifier.size(22.dp))
                     }
-                    HorizontalDivider(Modifier.padding(start = 80.dp, end = 18.dp), color = c.line)
+                    HorizontalDivider(Modifier.padding(start = 62.dp, end = 14.dp), color = c.line)
                 }
             }
             if (groups.isEmpty()) {
@@ -211,20 +211,20 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                             } else {
                                 connect(single.id)
                             }
-                        }.padding(horizontal = 18.dp, vertical = 16.dp),
+                        }.padding(horizontal = 14.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FlagCircle(g.code, 46.dp)
-                        Spacer(Modifier.width(16.dp))
+                        FlagCircle(g.code, 36.dp)
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(g.name, color = c.text, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(g.name, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val sub = if (many) {
                                 val cities = g.locations.map { it.city.ifEmpty { it.name } }.distinct().size
                                 if (cities == g.locations.size) t("cities", "n" to iso("$cities")) else t("servers", "n" to iso("${g.locations.size}"))
                             } else {
                                 single.city.ifEmpty { if (single.name != g.name && single.name != Geo.name(context, g.code, "en")) single.name else "" }
                             }
-                            if (sub.isNotEmpty()) Text(sub, color = c.muted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (sub.isNotEmpty()) Text(sub, color = c.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         PingText(g.ping, pinging)
                         Spacer(Modifier.width(10.dp))
@@ -239,14 +239,14 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                     items(g.locations, key = { "loc-${it.id}" }) { l ->
                         val chosen = l.id == active || (active == null && l.id == settings.locationId)
                         Row(
-                            Modifier.fillMaxWidth().background(c.cardHigh.copy(alpha = 0.45f)).clickable { connect(l.id) }.padding(start = 80.dp, end = 18.dp, top = 14.dp, bottom = 14.dp),
+                            Modifier.fillMaxWidth().background(c.cardHigh.copy(alpha = 0.45f)).clickable { connect(l.id) }.padding(start = 62.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text(l.city.ifEmpty { l.name }, color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Text(l.city.ifEmpty { l.name }, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                                 // The panel's own name for the location, when it says more than the country does.
                                 val countryNames = setOf(g.name, Geo.name(context, g.code, "en"), Geo.name(context, g.code, "fa"))
-                                if (l.city.isNotEmpty() && l.name.isNotEmpty() && l.name !in countryNames) Text(l.name, color = c.muted, fontSize = 13.sp)
+                                if (l.city.isNotEmpty() && l.name.isNotEmpty() && l.name !in countryNames) Text(l.name, color = c.muted, fontSize = 12.sp)
                             }
                             PingText(Candidates.bestPing(p, pings, l.id), pinging)
                             Spacer(Modifier.width(10.dp))
@@ -254,7 +254,7 @@ fun LocationsScreen(p: Profile, settings: Settings, activity: MainActivity, focu
                         }
                     }
                 }
-                item(key = "line-${g.key}") { HorizontalDivider(Modifier.padding(start = 80.dp, end = 18.dp), color = c.line) }
+                item(key = "line-${g.key}") { HorizontalDivider(Modifier.padding(start = 62.dp, end = 14.dp), color = c.line) }
             }
             item(key = "end") { Spacer(Modifier.height(24.dp)) }
         }
@@ -270,5 +270,5 @@ private fun PingText(ms: Int?, pinging: Boolean) {
         ms < 300 -> Palette.warn
         else -> Palette.bad
     }
-    Ltr { Text(if (ms != null) "$ms ms" else if (pinging) "…" else "—", color = color, fontSize = 14.sp) }
+    Ltr { Text(if (ms != null) "$ms ms" else if (pinging) "…" else "—", color = color, fontSize = 13.sp) }
 }

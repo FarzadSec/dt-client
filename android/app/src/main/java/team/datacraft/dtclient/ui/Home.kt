@@ -196,7 +196,7 @@ private fun MapCard(p: Profile, status: Status, settings: Settings, activity: Ma
     val ink by animateColorAsState(if (connected) c.secured else if (busy) Palette.warn else c.unsecured, label = "ink")
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(c.sea)) {
         WorldMap(focus, dots, Modifier.matchParentSize())
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, c.sea.copy(alpha = 0.9f), c.sea), startY = 120f)))
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, c.sea.copy(alpha = 0.78f), c.sea.copy(alpha = 0.96f)), startY = 80f)))
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 if (connected) LiveChart(samples, Modifier.weight(1f)) else Spacer(Modifier.weight(1f).height(if (connected) 0.dp else 70.dp))

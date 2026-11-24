@@ -360,15 +360,15 @@ private fun LoginPage(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            CircleIconButton(R.drawable.ic_back, t("back"), size = 52.dp, onClick = onBack)
+            CircleIconButton(R.drawable.ic_back, t("back"), size = 44.dp, onClick = onBack)
             Spacer(Modifier.weight(1f))
             LanguageChip()
         }
         Spacer(Modifier.height(8.dp))
         Image(painterResource(if (c.dark) R.drawable.dt_lockup_reversed else R.drawable.dt_lockup), "DT Connect", Modifier.height(44.dp))
         Spacer(Modifier.height(4.dp))
-        Text(t("signInTitle"), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = c.text)
-        Text(t("signInHint"), fontSize = 15.sp, lineHeight = 24.sp, color = c.muted)
+        Text(t("signInTitle"), fontSize = 21.sp, fontWeight = FontWeight.Bold, color = c.text)
+        Text(t("signInHint"), fontSize = 14.sp, lineHeight = 22.sp, color = c.muted)
         Ltr {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 OutlinedTextField(
