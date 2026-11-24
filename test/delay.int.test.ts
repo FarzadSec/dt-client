@@ -36,7 +36,7 @@ run('real delay through Xray', () => {
       log: { loglevel: 'warning' },
       inbounds: [{ listen: '127.0.0.1', port: vlessPort, protocol: 'vless', settings: { clients: [{ id }], decryption: 'none' }, streamSettings: { network: 'tcp' } }],
       // Xray refuses private targets on a server's freedom unless allowed.
-      outbounds: [{ protocol: 'freedom', settings: { finalRules: [{ action: 'allow', ip: ['127.0.0.0/8'] }] } }],
+      outbounds: [{ protocol: 'freedom', settings: { finalRules: [{ action: 'allow', ip: ['127.0.0.0/8', '::1/128'] }] } }],
     };
     fs.writeFileSync(path.join(dir, 'server.json'), JSON.stringify(conf));
     server = spawn(xray, ['run', '-c', path.join(dir, 'server.json')], { stdio: 'ignore' });
