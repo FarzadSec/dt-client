@@ -56,6 +56,27 @@ async function call(fetchImpl: Fetch, url: string, init: RequestInit, timeout = 
   return body;
 }
 
+// No cache between the app and the panel may answer for it: a profile is always fetched anew.
+const fresh = { 'Cache-Control': 'no-cache', Pragma: 'no-cache' };
+
+// The accounts a subscription link belongs to, from its information page (<link>?format=info, Manifold),
+// so a customer signs in with the link alone. The first one is the subscription's own.
+export async function subscriptionAccounts(subLink: string, userAgent: string, fetchImpl: Fetch = fetch): Promise<string[]> {
+  let url: URL;
+  try {
+    url = new URL(subLink.trim());
+  } catch {
+    throw new ApiError('bad_link', 0);
+  }
+  url.hash = '';
+  url.searchParams.set('format', 'info');
+  const body = await call(fetchImpl, url.toString(), { method: 'GET', headers: { 'User-Agent': userAgent, Accept: 'application/json', ...fresh } });
+  const emails = (body as { emails?: unknown } | null)?.emails;
+  const names = Array.isArray(emails) ? emails.filter((e): e is string => typeof e === 'string' && e.trim() !== '').map((e) => e.trim()) : [];
+  if (names.length === 0) throw new ApiError(body && typeof body === 'object' ? 'no_account' : 'bad_response', 200);
+  return [...new Set(names)];
+}
+
 export class AppApi {
   constructor(
     private readonly base: string,
@@ -75,9 +96,9 @@ export class AppApi {
   }
 
   async profile(token: string, deviceId: string): Promise<AppProfile> {
-    const body = await call(this.fetchImpl, `${this.base}/profile`, {
+    const body = await call(this.fetchImpl, `${this.base}/profile?t=${Date.now()}`, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${token}`, 'X-HWID': deviceId, 'User-Agent': this.userAgent },
+      headers: { Authorization: `Bearer ${token}`, 'X-HWID': deviceId, 'User-Agent': this.userAgent, ...fresh },
     });
     if (!isProfile(body)) throw new ApiError('bad_response', 200);
     return body;

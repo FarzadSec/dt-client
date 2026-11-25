@@ -11,7 +11,7 @@
 
 <div dir="rtl">
 
-<p align="center"><b>اپ رسمی دیتاکرفت</b> برای ویندوز، اندروید، مک و لینوکس<br>با لینک اشتراک و نام کاربری‌تان وارد شوید و با یک لمس به سریع‌ترین سرور وصل شوید.</p>
+<p align="center"><b>اپ رسمی دیتاکرفت</b> برای ویندوز، اندروید، مک و لینوکس<br>فقط با لینک اشتراک‌تان وارد شوید و با یک لمس به سریع‌ترین سرور وصل شوید.</p>
 
 ## ⬇️ دانلود — نسخه‌ی {{version}}
 
@@ -72,7 +72,7 @@ brew install openvpn
 پیام تحویل سرویس در ربات [@DataCraftBot](https://t.me/DataCraftBot) یک **کد QR ورود** و یک **لینک ورود** دارد.
 
 - **اندروید:** در صفحه‌ی اول «اسکن کد QR ورود» را بزنید. اگر QR روی همین گوشی است، «انتخاب عکس QR» و عکس را از گالری انتخاب کنید. یا روی لینک ورود بزنید.
-- **ویندوز، مک، لینوکس:** روی لینک ورود کلیک کنید تا اپ باز شود و وارد شوید. یا لینک اشتراک را در کادر لینک بچسبانید و نام کاربری‌تان را بنویسید.
+- **ویندوز، مک، لینوکس:** روی لینک ورود کلیک کنید تا اپ باز شود و وارد شوید، یا فقط لینک اشتراک را در کادر لینک بچسبانید.
 
 هر پلنی که خریده‌اید با همان اکانت در اپ کار می‌کند. هر دستگاه یکی از جاهای «تعداد دستگاه» اشتراک شما را می‌گیرد.
 
@@ -124,7 +124,7 @@ shasum -a 256 DT-Connect-{{version}}-mac-arm64.pkg
 
 ### English
 
-DT Connect is DataCraft's VPN app. Sign in with your subscription link and username, or scan the sign-in QR code from [@DataCraftBot](https://t.me/DataCraftBot).
+DT Connect is DataCraft's VPN app. Sign in with your subscription link alone, or scan the sign-in QR code from [@DataCraftBot](https://t.me/DataCraftBot).
 
 | System | Download |
 | --- | --- |

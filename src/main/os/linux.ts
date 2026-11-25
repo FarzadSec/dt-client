@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { l2tpConnectionName, type L2tpAccount } from '../configs/l2tp';
+import { blockIpv6Linux, restoreIpv6Linux } from '../system/ipv6';
 import { run } from '../system/run';
 import type { LogFn } from '../log';
 import type { SystemKit } from './kit';
@@ -57,7 +58,28 @@ const l2tp = {
   async disconnect() {
     await run('nmcli', ['connection', 'down', 'id', l2tpConnectionName]);
   },
+  // The PPP link L2TP runs over, from the kernel's counters.
+  async counters() {
+    return pppCounters(await fs.promises.readFile('/proc/net/dev', 'utf8').catch(() => ''));
+  },
 };
+
+// /proc/net/dev: "ppp0: rx_bytes rx_packets … tx_bytes …" (the 9th number is tx_bytes).
+export function pppCounters(text: string): { rx: number; tx: number } | null {
+  let rx = 0;
+  let tx = 0;
+  let any = false;
+  for (const line of text.split('\n')) {
+    const m = /^\s*(ppp\d+):\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const f = m[2].trim().split(/\s+/).map(Number);
+    if (f.length < 9 || !f.every(Number.isFinite)) continue;
+    rx += f[0];
+    tx += f[8];
+    any = true;
+  }
+  return any ? { rx, tx } : null;
+}
 
 // Chromium browsers read managed policies from these folders on Linux.
 const policyDirs = ['/etc/opt/chrome/policies/managed', '/etc/chromium/policies/managed', '/etc/opt/edge/policies/managed', '/etc/brave/policies/managed'];
@@ -74,6 +96,8 @@ export const linuxKit: SystemKit = {
     if ((await run('resolvectl', ['dns', linuxOpenvpnTun, ...dns])).code === 0) await run('resolvectl', ['domain', linuxOpenvpnTun, '~.']);
   },
   l2tp,
+  blockIpv6: () => blockIpv6Linux(),
+  restoreIpv6: () => restoreIpv6Linux(),
   async applyZone(iana) {
     const current = (await run('timedatectl', ['show', '-p', 'Timezone', '--value'])).stdout.trim();
     if (!current || current === iana) return null;

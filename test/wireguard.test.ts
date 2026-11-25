@@ -154,7 +154,7 @@ describe('an attempt that is overtaken', () => {
       restoreZone: async () => undefined,
     } as unknown as SystemKit;
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'dt-vpn-'));
-    const vpn = new Vpn({ bin: path.join(work, 'bin'), work }, kit);
+    const vpn = new Vpn({ bin: path.join(work, 'bin'), work }, kit, undefined, { checkTraffic: async () => true, live: false });
     const statuses: Status[] = [];
     vpn.on('status', (s: Status) => statuses.push(s));
     return { vpn, calls, pending, statuses };

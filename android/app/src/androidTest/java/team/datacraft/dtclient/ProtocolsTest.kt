@@ -80,6 +80,13 @@ class ProtocolsTest {
         }
         assertEquals(emptyList<String>(), failures)
 
+        // The real delay through Xray (Core.measureDelay, an instance of its own) for the same servers.
+        val delays = runBlocking { team.datacraft.dtclient.vpn.Ping.all(profile) }
+        for ((locationId, protocol) in listOf(1 to "vless", 2 to "vmess", 5 to "wireguard")) {
+            val config = profile.configs.first { it.locationId == locationId }
+            assertTrue("$protocol has a real delay: $delays", (delays[config.link] ?: 0) > 0)
+        }
+
         // The log of all that goes to the panel as a report, and the panel files it.
         val (id, error) = runBlocking { Repo.sendReport("CI report") }
         assertNull("report error", error)

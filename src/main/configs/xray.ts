@@ -160,7 +160,7 @@ export const carrierAddress = '10.255.255.254';
 // Xray 26.7 and later refuse VLESS and Trojan without TLS to a public address, which plenty of
 // services still run (often to a relay in the country). Such an outbound then points at a private
 // address and dials through a freedom outbound that redirects to the real server, so it still connects.
-function carryPlainOutbound(proxy: Obj, outbounds: Obj[]): void {
+function carryPlainOutbound(proxy: Obj, outbounds: Obj[], carrierTag = 'carrier'): void {
   if (proxy.protocol !== 'vless' && proxy.protocol !== 'trojan') return;
   const stream = (isObj(proxy.streamSettings) ? proxy.streamSettings : {}) as Obj;
   const security = typeof stream.security === 'string' ? stream.security : '';
@@ -189,25 +189,64 @@ function carryPlainOutbound(proxy: Obj, outbounds: Obj[]): void {
     stream.grpcSettings = g;
   }
   const sockopt = (isObj(stream.sockopt) ? stream.sockopt : {}) as Obj;
-  sockopt.dialerProxy = 'carrier';
+  sockopt.dialerProxy = carrierTag;
   stream.sockopt = sockopt;
   proxy.streamSettings = stream;
   const target = net.isIPv6(real) ? `[${real}]:${port}` : `${real}:${port}`;
-  outbounds.push({ tag: 'carrier', protocol: 'freedom', settings: { redirect: target }, streamSettings: { sockopt: { domainStrategy: 'UseIPv4' } } });
+  outbounds.push({ tag: carrierTag, protocol: 'freedom', settings: { redirect: target }, streamSettings: { sockopt: { domainStrategy: 'UseIPv4' } } });
 }
 
-export function xrayConfig(outbound: Obj, opts: XrayOptions): Obj {
+// The proxy outbound as the app runs it: server names from the resolved hosts (never asked through the
+// tunnel), and a plain VLESS or Trojan to a public address carried by a freedom outbound (extra).
+function prepareProxy(outbound: Obj, tag: string, hosts: Record<string, string[]>, carrierTag: string): { proxy: Obj; extra: Obj[]; onlyV6: boolean } {
   const proxy = structuredClone(outbound);
-  proxy.tag = 'proxy';
+  proxy.tag = tag;
   const stream = (isObj(proxy.streamSettings) ? proxy.streamSettings : {}) as Obj;
   const sockopt = (isObj(stream.sockopt) ? stream.sockopt : {}) as Obj;
-  // Server names come from the hosts below; without them Xray would ask through the tunnel.
   sockopt.domainStrategy = 'UseIPv4';
   stream.sockopt = sockopt;
   proxy.streamSettings = stream;
-
   const extra: Obj[] = [];
-  carryPlainOutbound(proxy, extra);
+  carryPlainOutbound(proxy, extra, carrierTag);
+  const names = serverNames(outbound);
+  const onlyV6 = names.some((n) => (hosts[n] ?? []).length > 0 && (hosts[n] ?? []).every((ip) => ip.includes(':')));
+  if (onlyV6) sockopt.domainStrategy = 'UseIP';
+  return { proxy, extra, onlyV6 };
+}
+
+function hostsOf(hosts: Record<string, string[]>): Obj {
+  const out: Obj = {};
+  for (const [name, ips] of Object.entries(hosts)) if (ips.length > 0) out[`full:${name}`] = ips.length === 1 ? ips[0] : ips;
+  return out;
+}
+
+// The page the panel's outbound test fetches, and the app's: an empty answer (204) from Google.
+export const delayTestUrl = 'https://www.google.com/generate_204';
+
+// One Xray for a whole delay test, as the panel's outbound test runs it: a local SOCKS port per config
+// and a rule from each port to its outbound. Xray's own lookups (WireGuard's targets) leave directly.
+export function xrayDelayConfig(items: { outbound: Obj; port: number }[], hosts: Record<string, string[]>): Obj {
+  const inbounds: Obj[] = [];
+  const outbounds: Obj[] = [{ tag: 'direct', protocol: 'freedom' }];
+  const rules: Obj[] = [];
+  items.forEach((item, i) => {
+    const { proxy, extra } = prepareProxy(item.outbound, `proxy-${i}`, hosts, `carrier-${i}`);
+    inbounds.push({ tag: `test-${i}`, listen: '127.0.0.1', port: item.port, protocol: 'socks', settings: { auth: 'noauth', udp: false } });
+    outbounds.push(proxy, ...extra);
+    rules.push({ type: 'field', inboundTag: [`test-${i}`], outboundTag: `proxy-${i}` });
+  });
+  const h = hostsOf(hosts);
+  return {
+    log: { loglevel: 'warning', access: 'none' },
+    dns: { ...(Object.keys(h).length > 0 ? { hosts: h } : {}), servers: defaultDns, queryStrategy: 'UseIPv4' },
+    inbounds,
+    outbounds,
+    routing: { domainStrategy: 'AsIs', rules },
+  };
+}
+
+export function xrayConfig(outbound: Obj, opts: XrayOptions): Obj {
+  const { proxy, extra, onlyV6 } = prepareProxy(outbound, 'proxy', opts.hosts ?? {}, 'carrier');
 
   const rules: Obj[] = [];
   if (opts.adBlock) rules.push({ type: 'field', domain: ['geosite:category-ads-all'], outboundTag: 'block' });
@@ -218,10 +257,7 @@ export function xrayConfig(outbound: Obj, opts: XrayOptions): Obj {
       { type: 'field', ip: ['geoip:ir'], outboundTag: 'direct' },
     );
   }
-  const hosts: Obj = {};
-  for (const [name, ips] of Object.entries(opts.hosts ?? {})) if (ips.length > 0) hosts[`full:${name}`] = ips.length === 1 ? ips[0] : ips;
-  const onlyV6 = Object.values(opts.hosts ?? {}).some((ips) => ips.length > 0 && ips.every((ip) => ip.includes(':')));
-  if (onlyV6) sockopt.domainStrategy = 'UseIP';
+  const hosts = hostsOf(opts.hosts ?? {});
   return {
     log: { loglevel: opts.logLevel ?? 'warning', access: 'none' },
     dns: { ...(Object.keys(hosts).length > 0 ? { hosts } : {}), servers: opts.dns ?? defaultDns, queryStrategy: onlyV6 ? 'UseIP' : 'UseIPv4' },

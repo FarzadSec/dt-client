@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { lastDays } from '../../shared/activity';
-import { usableLocationIds } from '../../shared/engines';
-import type { Activity, AppAccount, AppLocation, AppProfile, Language, PingResult, Settings, Status } from '../../shared/types';
+import { engineOf, usableLocationIds } from '../../shared/engines';
+import type { Activity, AppAccount, AppLocation, AppProfile, Language, LiveSample, PingResult, ProtocolChoice, Settings, Status } from '../../shared/types';
 import { usageOf } from '../../shared/usage';
 import { Flag } from '../components/Flag';
-import { ArrowDownIcon, ArrowUpIcon, NextIcon, ShieldIcon } from '../components/Icons';
+import { ArrowDownIcon, ArrowUpIcon, ChevronIcon, NextIcon, ShieldIcon } from '../components/Icons';
+import { LiveChart } from '../components/LiveChart';
 import { WorldMap, type MapMarker } from '../components/WorldMap';
 import { bytes, clock, daysLeft, spent } from '../format';
 import { countryPoint } from '../geo/geo';
@@ -21,10 +22,48 @@ interface Props {
   settings: Settings;
   pings: PingResult[];
   activity: Activity;
+  live: LiveSample[];
+  fetchedAt: number;
   onConnect: (locationId: number | null) => void;
   onDisconnect: () => void;
+  onProtocol: (protocol: ProtocolChoice) => void;
   onAllLocations: () => void;
   onOpenSettings: (section: Section) => void;
+}
+
+const protocolNames: Record<string, string> = { xray: 'V2Ray', wireguard: 'WireGuard', openvpn: 'OpenVPN', l2tp: 'L2TP' };
+
+// The protocols this account has that run on this system, in the order Auto tries them.
+export function protocolChoices(profile: AppProfile): ProtocolChoice[] {
+  const have = new Set<ProtocolChoice>();
+  for (const c of profile.configs) {
+    const engine = engineOf(c);
+    if (!engine) continue;
+    if (c.protocol === 'wireguard') have.add('wireguard');
+    else if (engine === 'xray') have.add('xray');
+    else have.add(engine);
+  }
+  return (['xray', 'wireguard', 'openvpn', 'l2tp'] as ProtocolChoice[]).filter((p) => have.has(p));
+}
+
+export function protocolName(protocol: string | undefined): string {
+  if (!protocol) return '';
+  return protocolNames[protocol] ?? protocol.toUpperCase();
+}
+
+function ProtocolSwitch({ t, profile, value, onChange }: { t: Translate; profile: AppProfile; value: ProtocolChoice; onChange: (p: ProtocolChoice) => void }) {
+  const choices = protocolChoices(profile);
+  if (choices.length === 0) return null;
+  const all: ProtocolChoice[] = ['auto', ...choices];
+  return (
+    <div className="proto-switch" role="radiogroup" aria-label={t('protocol')}>
+      {all.map((p) => (
+        <button key={p} type="button" role="radio" aria-checked={value === p} className={value === p ? 'on' : ''} onClick={() => onChange(p)}>
+          {p === 'auto' ? t('autoShort') : protocolNames[p]}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function useNow(active: boolean): number {
@@ -71,10 +110,18 @@ export function Home(props: Props) {
   if (shown?.city && shown.name && shown.city !== shown.name) title = `${title} · ${shown.city}`;
   const stateText = connected ? t('connected') : status.state === 'connecting' ? t('connecting') : status.state === 'disconnecting' ? t('disconnecting') : t('notConnected');
 
+  const target: AppLocation | undefined = settings.locationId === null ? undefined : byId.get(settings.locationId);
+  const usedProtocol = protocolName(status.protocol);
+
   return (
     <div className="home">
-      <section className="hero">
+      <section className={connected ? 'hero live-on' : 'hero'}>
         <WorldMap markers={markers} focus={focus} rtl={lang === 'fa'} />
+        {connected && (
+          <div className="hero-live">
+            <LiveChart t={t} samples={props.live} />
+          </div>
+        )}
         <div className="hero-status">
           <div className="status-head">
             <span className={`status-badge ${connected ? 'ok' : busy ? 'busy' : 'bad'}`}>
@@ -84,14 +131,27 @@ export function Home(props: Props) {
               <h1>{title}</h1>
               <div className={`status-text ${connected ? 'ok' : busy ? 'busy' : 'bad'}`}>
                 {stateText}
-                {connected && status.since ? <span dir="ltr"> · {clock(now - status.since)}</span> : null}
+                {connected && status.since ? (
+                  <>
+                    {' · '}
+                    <span dir="ltr">{clock(now - status.since)}</span>
+                  </>
+                ) : null}
               </div>
               {(connected || status.state === 'connecting') && status.protocol && (
                 <div className="status-sub" dir="ltr">
-                  {status.protocol.toUpperCase()} · {status.configName}
+                  {usedProtocol} · {status.configName}
                 </div>
               )}
             </div>
+          </div>
+          <div className="hero-pickers">
+            <button type="button" className="location-pick" onClick={props.onAllLocations} title={t('changeLocation')}>
+              <Flag code={target ? target.countryCode : null} size={26} />
+              <span>{target ? locationLabel(target, lang) : t('fastest')}</span>
+              <ChevronIcon />
+            </button>
+            <ProtocolSwitch t={t} profile={profile} value={settings.protocol} onChange={props.onProtocol} />
           </div>
           <div className="hero-actions">
             {connected || status.blocking ? (
@@ -115,21 +175,37 @@ export function Home(props: Props) {
       {!status.blocking && status.error && (
         <div className="banner error">
           <span>{errorText(t, status.error)}</span>
-          {(status.error === 'all_failed' || status.error === 'connection_lost') && (
+          {status.error === 'protocol_failed' && settings.protocol !== 'auto' && (
+            <button type="button" className="link-btn" onClick={() => props.onProtocol('auto')}>
+              {t('autoShort')}
+            </button>
+          )}
+          {(status.error === 'all_failed' || status.error === 'connection_lost' || status.error === 'protocol_failed') && (
             <button type="button" className="link-btn" onClick={() => props.onOpenSettings('support')}>
               {t('reportShort')}
             </button>
           )}
         </div>
       )}
-      {status.notice && <div className="banner warn">{t(`notice.${status.notice}`)}</div>}
+      {status.notice === 'stalled' && (
+        <div className="banner error">
+          <span>{t('notice.stalled', { protocol: usedProtocol })}</span>
+          {settings.protocol !== 'auto' && (
+            <button type="button" className="link-btn" onClick={() => props.onProtocol('auto')}>
+              {t('autoShort')}
+            </button>
+          )}
+        </div>
+      )}
+      {status.notice === 'switched' && <div className="banner info">{t('notice.switched', { protocol: usedProtocol })}</div>}
+      {status.notice && status.notice !== 'stalled' && status.notice !== 'switched' && <div className="banner warn">{t(`notice.${status.notice}`)}</div>}
 
       <Recents {...props} byId={byId} usable={usable} />
 
       <div className="home-grid">
         <Statistics t={t} lang={lang} activity={activity} account={profile.account} />
         <div className="stack">
-          <AccountCard t={t} profile={profile} onOpen={() => props.onOpenSettings('account')} />
+          <AccountCard t={t} profile={profile} fetchedAt={props.fetchedAt} onOpen={() => props.onOpenSettings('account')} />
           <Protection t={t} settings={settings} onOpen={props.onOpenSettings} />
         </div>
       </div>
@@ -228,7 +304,15 @@ function UsageBar({ t, account }: { t: Translate; account: AppAccount }) {
   );
 }
 
-function AccountCard({ t, profile, onOpen }: { t: Translate; profile: AppProfile; onOpen: () => void }) {
+// "just now", "5 min ago": when the subscription was last fetched.
+export function ago(t: Translate, at: number, now = Date.now()): string {
+  const min = Math.floor((now - at) / 60_000);
+  if (min < 1) return t('justNow');
+  if (min < 60) return t('minutesAgo', { n: min });
+  return t('hoursAgo', { n: Math.floor(min / 60) });
+}
+
+function AccountCard({ t, profile, fetchedAt, onOpen }: { t: Translate; profile: AppProfile; fetchedAt: number; onOpen: () => void }) {
   const a = profile.account;
   const used = a.upload + a.download;
   const percent = a.total > 0 ? Math.min(100, (used / a.total) * 100) : 0;
@@ -248,6 +332,7 @@ function AccountCard({ t, profile, onOpen }: { t: Translate; profile: AppProfile
       <div className="meter">
         <div style={{ width: `${a.total > 0 ? percent : 0}%` }} />
       </div>
+      {fetchedAt > 0 && <small className="muted updated">{t('updatedAgo', { when: ago(t, fetchedAt) })}</small>}
     </button>
   );
 }

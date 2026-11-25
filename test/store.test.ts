@@ -21,10 +21,42 @@ describe('Store', () => {
     expect(raw).not.toContain('dana:pw');
 
     const reopened = new Store(file, sealer);
-    expect(reopened.session()).toEqual({ subLink: 'https://s/sub/x', username: 'dana', token: 'secret-token' });
+    expect(reopened.session()).toMatchObject({ subLink: 'https://s/sub/x', username: 'dana', token: 'secret-token' });
     expect(reopened.profile()?.configs[0].link).toBe('l2tp://dana:pw@h');
     reopened.clearSession();
     expect(new Store(file, sealer).session()).toBeNull();
+  });
+
+  it('moves the one account of 1.1 into the accounts list', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-')), 'state.json');
+    fs.writeFileSync(file, JSON.stringify({ subLink: 'https://s/sub/x', username: 'dana', token: sealer.encrypt('tok'), settings: { language: 'en' } }));
+    const store = new Store(file, sealer);
+    expect(store.session()).toMatchObject({ subLink: 'https://s/sub/x', username: 'dana', token: 'tok' });
+    expect(store.accounts()).toMatchObject([{ username: 'dana', host: 's', signedIn: true, active: true }]);
+    expect(store.settings().language).toBe('en');
+  });
+
+  it('keeps several accounts, switches between them and signs one out', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dt-')), 'state.json');
+    const store = new Store(file, sealer);
+    const a = store.saveSession('https://a/sub/1', 'ann', 'ta');
+    store.saveProfile({ account: { username: 'ann', expiryTime: 5 } as never, title: 'Gold', locations: [], configs: [] });
+    const b = store.saveSession('https://b/sub/2', 'bob', 'tb');
+    expect(store.session()?.username).toBe('bob');
+    expect(store.profile()).toBeNull();
+    expect(store.setActive(a)).toBe(true);
+    expect(store.profile()?.title).toBe('Gold');
+    expect(store.accounts().map((x) => [x.username, x.active, x.title])).toEqual([
+      ['ann', true, 'Gold'],
+      ['bob', false, ''],
+    ]);
+    store.clearSession();
+    expect(store.session()).toBeNull();
+    expect(store.accounts().find((x) => x.id === a)?.signedIn).toBe(false);
+    expect(store.setActive(a)).toBe(false);
+    expect(store.setActive(b)).toBe(true);
+    store.removeAccount(a);
+    expect(new Store(file, sealer).accounts().map((x) => x.username)).toEqual(['bob']);
   });
 
   it('fills settings it never saved from the defaults', () => {

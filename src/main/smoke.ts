@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { osOf } from '../shared/platform';
 import { singboxTunConfig } from './configs/singbox';
-import { proxyOutboundFor, xrayConfig } from './configs/xray';
+import { proxyOutboundFor, xrayConfig, xrayDelayConfig } from './configs/xray';
 
 // CI writes the configs the app would run and checks them with the bundled xray and sing-box.
 const out = process.argv[2] ?? 'smoke';
@@ -41,7 +41,10 @@ for (const [name, outbound] of Object.entries(outbounds)) {
   const hosts = name === 'vless' ? { 'de.example.com': ['203.0.113.7'] } : undefined;
   fs.writeFileSync(path.join(out, `xray-${name}.json`), JSON.stringify(xrayConfig(outbound, { socksPort: 20808, httpPort: 20809, iranDirect: true, adBlock: true, dns: ['9.9.9.9'], hosts }), null, 2));
 }
+// The real-delay test's one Xray for all of them.
+const items = Object.values(outbounds).map((outbound, i) => ({ outbound, port: 21000 + i }));
+fs.writeFileSync(path.join(out, 'xray-delay.json'), JSON.stringify(xrayDelayConfig(items, { 'de.example.com': ['203.0.113.7'] }), null, 2));
 const os = osOf(process.platform);
-const tun = singboxTunConfig({ os, interfaceName: os === 'linux' ? 'dtconnect0' : os === 'windows' ? 'DT Connect' : undefined, socksPort: 20808, strictRoute: true, dns: '9.9.9.9', bypassApps: [os === 'windows' ? 'steam.exe' : 'steam'] });
+const tun = singboxTunConfig({ os, interfaceName: os === 'linux' ? 'dtconnect0' : os === 'windows' ? 'DT Connect' : undefined, socksPort: 20808, strictRoute: true, dns: '9.9.9.9', bypassApps: [os === 'windows' ? 'steam.exe' : 'steam'], controller: { port: 20810, secret: 'smoke' } });
 fs.writeFileSync(path.join(out, 'tun.json'), JSON.stringify(tun, null, 2));
 console.log(`wrote configs to ${out}`);

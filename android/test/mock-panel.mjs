@@ -61,8 +61,11 @@ http.createServer((req, res) => {
   req.setEncoding('latin1');
   req.on('data', (chunk) => (body += chunk));
   req.on('end', () => {
-    const path = new URL(req.url, 'http://x').pathname;
-    console.log(new Date().toISOString(), req.method, path, req.headers['user-agent'] ?? '');
+    const url = new URL(req.url, 'http://x');
+    const path = url.pathname;
+    console.log(new Date().toISOString(), req.method, path + url.search, req.headers['user-agent'] ?? '');
+    // The subscription's information page, which names its account: the app signs in with the link alone.
+    if (path === '/sub/demo' && url.searchParams.get('format') === 'info') return send(res, 200, { emails: [username], traffic: {} });
     if (!path.startsWith('/sub/demo/app/v1/')) return send(res, 404, { error: 'not_found' });
     const call = path.slice('/sub/demo/app/v1/'.length);
     if (call === 'login' && req.method === 'POST') {

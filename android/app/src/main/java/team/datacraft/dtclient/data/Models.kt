@@ -69,6 +69,31 @@ data class Profile(
 
 fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }
 
+// A subscription signed in on this phone; token and profile are null once its session ended.
+data class AccountEntry(val id: String, val subLink: String, val username: String, val token: String?, val profile: String?) {
+    val signedIn: Boolean get() = token != null && profile != null
+    val title: String get() = profile?.let { runCatching { JSONObject(it).optString("title") }.getOrNull() } ?: ""
+    val host: String get() = runCatching { java.net.URI(subLink).host }.getOrNull() ?: ""
+
+    fun toJson(): JSONObject = JSONObject().put("id", id).put("subLink", subLink).put("username", username)
+        .put("token", token ?: JSONObject.NULL).put("profile", profile ?: JSONObject.NULL)
+
+    companion object {
+        fun idOf(subLink: String, username: String): String {
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest("${subLink.trim()}\n${username.trim().lowercase()}".toByteArray())
+            return hash.joinToString("") { "%02x".format(it) }.take(16)
+        }
+
+        fun fromJson(o: JSONObject): AccountEntry? {
+            val link = o.optString("subLink")
+            val name = o.optString("username")
+            if (link.isEmpty() || name.isEmpty()) return null
+            fun str(k: String) = if (o.isNull(k)) null else o.optString(k).takeIf { it.isNotEmpty() }
+            return AccountEntry(o.optString("id").ifEmpty { idOf(link, name) }, link, name, str("token"), str("profile"))
+        }
+    }
+}
+
 enum class ConnState { Disconnected, Connecting, Connected, Disconnecting }
 
 data class Status(
@@ -79,7 +104,13 @@ data class Status(
     val protocol: String = "",
     val since: Long = 0,
     val error: String = "",
+    // stalled: the protocol stopped passing traffic; switched: Auto moved to another protocol for that.
+    val notice: String = "",
 )
+
+// A second of the connection: bytes per second each way, and the test page's round trip through it
+// (null: timed out; -1: none measured that second).
+data class LiveSample(val at: Long, val rx: Long, val tx: Long, val ms: Int? = -1)
 
 data class Settings(
     val language: String = "fa",
@@ -94,6 +125,10 @@ data class Settings(
     val seenNoticeId: Int = 0,
     val seenAnnounce: String = "",
     val recents: List<Int> = emptyList(),
+    // Apps (package names) and sites that must not be used while the VPN is off.
+    val lockEnabled: Boolean = false,
+    val lockApps: Set<String> = emptySet(),
+    val lockSites: List<String> = emptyList(),
 ) {
     fun toJson(): String = JSONObject()
         .put("language", language).put("theme", theme).put("protocol", protocol)
@@ -103,6 +138,9 @@ data class Settings(
         .put("dismissedNotices", JSONArray(dismissedNotices.toList()))
         .put("seenNoticeId", seenNoticeId).put("seenAnnounce", seenAnnounce)
         .put("recents", JSONArray(recents))
+        .put("lockEnabled", lockEnabled)
+        .put("lockApps", JSONArray(lockApps.toList()))
+        .put("lockSites", JSONArray(lockSites))
         .toString()
 
     companion object {
@@ -124,6 +162,9 @@ data class Settings(
                     seenNoticeId = o.optInt("seenNoticeId"),
                     seenAnnounce = o.optString("seenAnnounce"),
                     recents = o.optJSONArray("recents")?.let { arr -> (0 until arr.length()).map { arr.optInt(it) } } ?: emptyList(),
+                    lockEnabled = o.optBoolean("lockEnabled", false),
+                    lockApps = strings("lockApps"),
+                    lockSites = o.optJSONArray("lockSites")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotEmpty() } } ?: emptyList(),
                 )
             }.getOrDefault(Settings())
         }

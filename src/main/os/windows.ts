@@ -5,6 +5,7 @@ import { app } from 'electron';
 
 import { l2tpConnectionName, l2tpScriptEnv, l2tpScriptFile, type L2tpAccount } from '../configs/l2tp';
 import { allowL2tpBehindNat } from '../system/l2tpNat';
+import { blockIpv6Windows, restoreIpv6Windows } from '../system/ipv6';
 import { prepareOpenvpnAdapters } from '../system/openvpnAdapters';
 import { powershellFile, run } from '../system/run';
 import { applyZone, restoreZone } from '../system/timezone';
@@ -56,5 +57,7 @@ export const windowsKit: SystemKit = {
   restoreZone,
   protectWebrtc,
   restoreWebrtc,
+  blockIpv6: () => blockIpv6Windows(),
+  restoreIpv6: () => restoreIpv6Windows(),
   tunName: 'DT Connect',
 };

@@ -64,5 +64,9 @@
                 android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
                 android:value="true" />
         </service>
+        <!-- Skip from the lock's notification. -->
+        <receiver
+            android:name=".vpn.LockSkipReceiver"
+            android:exported="false" />
     </application>
 </manifest>

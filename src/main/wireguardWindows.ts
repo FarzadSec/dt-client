@@ -70,6 +70,9 @@ export async function tunnelLog(tools: WireguardTools, max = 40): Promise<string
 
 export class WireguardWindowsConnection {
   readonly engine = 'xray' as const;
+  // start() fetches the test page through the tunnel itself.
+  readonly verified = true;
+  private lastCount: { at: number; value: { rx: number; tx: number } | null } = { at: 0, value: null };
   private lost: ((blocking: boolean) => void) | null = null;
   private watch: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -89,6 +92,14 @@ export class WireguardWindowsConnection {
 
   onLost(cb: (blocking: boolean) => void): void {
     this.lost = cb;
+  }
+
+  // The peer's byte counts from wg.exe, asked at most once a second.
+  async counters(): Promise<{ rx: number; tx: number } | null> {
+    if (Date.now() - this.lastCount.at < 900) return this.lastCount.value;
+    const state = this.stopped ? null : await peerState(this.tools);
+    this.lastCount = { at: Date.now(), value: state ? { rx: state.rx, tx: state.tx } : null };
+    return this.lastCount.value;
   }
 
   async start(): Promise<boolean> {

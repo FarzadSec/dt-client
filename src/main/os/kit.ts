@@ -7,6 +7,8 @@ export interface L2tpDriver {
   connect(account: L2tpAccount, log?: LogFn): Promise<{ ok: boolean; notice?: string }>;
   isUp(): Promise<boolean>;
   disconnect(): Promise<void>;
+  // Bytes through the L2TP link so far, where the system tells.
+  counters?(): Promise<{ rx: number; tx: number } | null>;
 }
 
 // What connecting needs from the system the engines run on.
@@ -29,5 +31,8 @@ export interface SystemKit {
   // applyDns gives back the network services it changed; restoreDns, whether there was anything to undo.
   applyDns?(servers: string[], backupFile: string): Promise<string[]>;
   restoreDns?(backupFile: string): Promise<boolean>;
+  // IPv6 kept from leaving around an IPv4-only tunnel (OpenVPN, L2TP) while it is up (system/ipv6.ts).
+  blockIpv6?(backupFile: string): Promise<boolean>;
+  restoreIpv6?(backupFile: string): Promise<boolean>;
   tunName?: string;
 }

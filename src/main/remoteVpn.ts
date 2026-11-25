@@ -63,7 +63,8 @@ export class RemoteVpn extends EventEmitter {
 
   private onMessage(message: HelperMessage): void {
     if ('event' in message) {
-      this.set(message.value);
+      if (message.event === 'live') this.emit('live', message.value);
+      else this.set(message.value);
       return;
     }
     const waiting = this.pending.get(message.id);
@@ -106,6 +107,15 @@ export class RemoteVpn extends EventEmitter {
       return typeof text === 'string' ? text : '';
     } catch {
       return '';
+    }
+  }
+
+  // The locked sites in the hosts file (root's to write); false when the helper could not do it.
+  async lockSites(sites: string[], address: string): Promise<boolean> {
+    try {
+      return (await this.call('lockSites', { sites, address })) === true;
+    } catch {
+      return false;
     }
   }
 

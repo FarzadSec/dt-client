@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 
+import { blockIpv6Mac, restoreIpv6Mac } from '../system/ipv6';
 import { applyDns, restoreDns } from '../system/macDns';
 import { run } from '../system/run';
 import type { SystemKit } from './kit';
@@ -31,4 +32,6 @@ export const macosKit: SystemKit = {
   restoreWebrtc: async () => undefined,
   applyDns,
   restoreDns,
+  blockIpv6: blockIpv6Mac,
+  restoreIpv6: restoreIpv6Mac,
 };

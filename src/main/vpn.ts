@@ -1,9 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-import type { AppProfile, Engine, Settings, Status } from '../shared/types';
+import type { AppProfile, Engine, LiveSample, Settings, Status } from '../shared/types';
 import { candidates, type Candidate } from './candidates';
 import { l2tpAccount } from './configs/l2tp';
 import { openvpnArgs, openvpnProfile, openvpnPushedAddress, openvpnUdp, unsafeOpenvpnDirective } from './configs/openvpn';
@@ -11,6 +12,8 @@ import { singboxTunConfig } from './configs/singbox';
 import { dnsServers, proxyOutboundFor, serverNames, systemResolvers, xrayConfig } from './configs/xray';
 import { EngineProcess, waitForLine } from './engines/process';
 import { freePort, probeThroughProxy, waitForPort } from './health';
+import { HttpProbe } from './httpProbe';
+import { LiveMonitor, type Counters } from './live';
 import type { LogFn } from './log';
 import type { L2tpDriver, SystemKit } from './os/kit';
 import { resolveNames } from './resolve';
@@ -25,10 +28,14 @@ export interface Connection {
   readonly engine: Engine;
   // The tunnel address the server gave this device, where the engine reports one (OpenVPN).
   readonly address?: string;
+  // The connection fetched the test page through the system's routes itself while starting.
+  readonly verified?: boolean;
   start(): Promise<boolean>;
   stop(): Promise<void>;
   // Called once if the connection drops by itself; blocking means traffic stays held back.
   onLost(cb: (blocking: boolean) => void): void;
+  // Bytes through the tunnel so far, for the live chart; null where the engine cannot tell.
+  counters?(): Promise<Counters | null>;
 }
 
 function writePrivate(file: string, content: string): void {
@@ -47,6 +54,7 @@ class XrayConnection implements Connection {
   private xray: EngineProcess | null = null;
   private tun: EngineProcess | null = null;
   private lost: ((blocking: boolean) => void) | null = null;
+  private controller: { port: number; secret: string } | null = null;
 
   constructor(
     private readonly candidate: Candidate,
@@ -58,6 +66,20 @@ class XrayConnection implements Connection {
 
   onLost(cb: (blocking: boolean) => void): void {
     this.lost = cb;
+  }
+
+  // sing-box's totals of everything the tunnel carried, from its local control port.
+  async counters(): Promise<Counters | null> {
+    const c = this.controller;
+    if (!c || !this.tun?.alive) return null;
+    try {
+      const res = await fetch(`http://127.0.0.1:${c.port}/connections`, { headers: { Authorization: `Bearer ${c.secret}` }, signal: AbortSignal.timeout(1500) });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { downloadTotal?: unknown; uploadTotal?: unknown };
+      return typeof body.downloadTotal === 'number' && typeof body.uploadTotal === 'number' ? { rx: body.downloadTotal, tx: body.uploadTotal } : null;
+    } catch {
+      return null;
+    }
   }
 
   async start(): Promise<boolean> {
@@ -103,7 +125,10 @@ class XrayConnection implements Connection {
 
     const tunFile = path.join(this.paths.work, 'tun.json');
     const bypassApps = this.settings.splitTunneling ? this.settings.splitApps.map((a) => a.name) : [];
-    const tunConfig = singboxTunConfig({ os: this.kit.os, interfaceName: this.kit.tunName, socksPort, strictRoute: this.settings.killSwitch, dns: dns[0], bypassApps });
+    this.controller = { port: await freePort(), secret: randomBytes(16).toString('hex') };
+    // Strict routes keep DNS and anything else from leaving around the tunnel (and are the kill switch).
+    const strictRoute = this.settings.killSwitch || this.settings.leakProtection !== false;
+    const tunConfig = singboxTunConfig({ os: this.kit.os, interfaceName: this.kit.tunName, socksPort, strictRoute, dns: dns[0], bypassApps, controller: this.controller });
     writePrivate(tunFile, JSON.stringify(tunConfig, null, 2));
     const tun = logged(
       new EngineProcess('sing-box', path.join(this.paths.bin, this.kit.exe('sing-box')), ['run', '-c', tunFile, '-D', this.paths.work], path.join(this.paths.work, 'sing-box.log'), this.paths.bin),
@@ -141,10 +166,52 @@ class XrayConnection implements Connection {
 // The exit notification takes about a second (openvpnExitNotify); more is a stuck OpenVPN.
 const openvpnExitGraceMs = 5000;
 
+// OpenVPN's management port takes one client at a time: once connected the app keeps it, reads the
+// byte counts it reports each second, and sends the SIGTERM through it when disconnecting.
+class ManagementLink {
+  private socket: net.Socket | null = null;
+  totals: Counters | null = null;
+
+  open(port: number): void {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    this.socket = socket;
+    let buffered = '';
+    socket.on('connect', () => socket.write('bytecount 1\r\n'));
+    socket.on('data', (d: Buffer) => {
+      buffered += d.toString('latin1');
+      let at: number;
+      while ((at = buffered.indexOf('\n')) >= 0) {
+        const line = buffered.slice(0, at).trim();
+        buffered = buffered.slice(at + 1);
+        const m = /^>BYTECOUNT:(\d+),(\d+)/.exec(line);
+        if (m) this.totals = { rx: Number(m[1]), tx: Number(m[2]) };
+      }
+      if (buffered.length > 65536) buffered = '';
+    });
+    socket.on('error', () => undefined);
+    socket.on('close', () => {
+      if (this.socket === socket) this.socket = null;
+    });
+  }
+
+  // True when the signal went through this link.
+  signal(name: string): Promise<boolean> {
+    const socket = this.socket;
+    if (!socket || socket.destroyed || !socket.writable) return Promise.resolve(false);
+    return new Promise((resolve) => socket.write(`signal ${name}\r\n`, (err) => resolve(!err)));
+  }
+
+  close(): void {
+    this.socket?.destroy();
+    this.socket = null;
+  }
+}
+
 class OpenvpnConnection implements Connection {
   readonly engine = 'openvpn' as const;
   private proc: EngineProcess | null = null;
   private managementPort = 0;
+  private management = new ManagementLink();
   private udp = true;
   address: string | undefined;
   private lost: ((blocking: boolean) => void) | null = null;
@@ -190,9 +257,15 @@ class OpenvpnConnection implements Connection {
     if (!up.ok) return false;
     await this.kit.openvpnUp(dnsServers(this.settings.dns));
     this.proc?.on('exit', ({ expected }: { expected: boolean }) => {
+      this.management.close();
       if (!expected) this.lost?.(false);
     });
+    this.management.open(this.managementPort);
     return true;
+  }
+
+  async counters(): Promise<Counters | null> {
+    return this.management.totals;
   }
 
   private async run(exe: string, profileFile: string, disableDco: boolean): Promise<{ ok: boolean; dcoTrouble: boolean; authFailed: boolean }> {
@@ -231,7 +304,7 @@ class OpenvpnConnection implements Connection {
     // SIGTERM through the management port lets OpenVPN tell the server it is leaving and take its
     // routes down itself. It has to be given the time: killing it at once (on Windows a kill ends the
     // process outright) left the server holding the session, and the account's seat, for two minutes.
-    await new Promise<void>((resolve) => {
+    if (!(await this.management.signal('SIGTERM'))) await new Promise<void>((resolve) => {
       // Sent is enough; the process's exit, awaited below, is what says OpenVPN is done.
       const socket = net.connect({ host: '127.0.0.1', port: this.managementPort }, () => socket.end('signal SIGTERM\r\n', () => resolve()));
       socket.on('error', () => resolve());
@@ -239,6 +312,7 @@ class OpenvpnConnection implements Connection {
       setTimeout(resolve, 2000);
     });
     if (!(await proc.exited(openvpnExitGraceMs))) this.log('vpn', `OpenVPN had not exited ${openvpnExitGraceMs / 1000} s after SIGTERM; stopping it`);
+    this.management.close();
     await proc.stop(8000);
   }
 }
@@ -288,6 +362,10 @@ class L2tpConnection implements Connection {
     this.watch = null;
   }
 
+  async counters(): Promise<Counters | null> {
+    return (await this.driver.counters?.()) ?? null;
+  }
+
   async stop(): Promise<void> {
     this.clearWatch();
     await this.driver.disconnect();
@@ -306,20 +384,29 @@ export class Vpn extends EventEmitter {
   // System DNS changes (macOS), run one at a time in the order they were asked for.
   private dnsQueue: Promise<void> = Promise.resolve();
   private readonly dnsBackup: string;
+  private monitor: LiveMonitor | null = null;
+  private readonly ipv6Backup: string;
+  private ipv6Blocked = false;
+  // What the connection up now was asked with, for a switch when it stops passing traffic.
+  private asked: { profile: AppProfile; settings: Settings; locationId: number | null } | null = null;
 
   constructor(
     private readonly paths: VpnPaths,
     private readonly kit: SystemKit,
     private readonly log: LogFn = () => undefined,
+    // Tests: the traffic check and the live monitor without the network.
+    private readonly options: { checkTraffic?: () => Promise<boolean>; live?: boolean } = {},
   ) {
     super();
     fs.mkdirSync(paths.work, { recursive: true });
     this.dnsBackup = path.join(paths.work, 'dns-backup.json');
+    this.ipv6Backup = path.join(paths.work, 'ipv6-backup.json');
     // A WireGuard tunnel left by a run that ended without disconnecting (a crash, a power cut).
     const tools = kit.os === 'windows' ? wireguardTools(paths.bin) : null;
     if (tools) void removeTunnel(tools, log);
-    // Likewise the system's resolvers, still pointed at the tunnel.
+    // Likewise the system's resolvers, still pointed at the tunnel, and IPv6 still held back.
     void this.restoreSystemDns();
+    void this.kit.restoreIpv6?.(this.ipv6Backup).catch(() => false);
   }
 
   private queueDns(task: () => Promise<void>): Promise<void> {
@@ -354,15 +441,17 @@ export class Vpn extends EventEmitter {
     return status;
   }
 
-  async connect(profile: AppProfile, settings: Settings, locationId: number | null, latency?: Map<string, number | null>): Promise<Status> {
+  // avoid: a protocol that just stopped passing traffic, tried after the others (Auto's switch).
+  async connect(profile: AppProfile, settings: Settings, locationId: number | null, latency?: Map<string, number | null>, avoid?: string): Promise<Status> {
     if (this.current.state !== 'disconnected' || this.current.blocking || this.pending) await this.disconnect();
     const attempt = ++this.attempt;
-    const list = candidates(profile, locationId, settings.protocol, latency);
+    const list = candidates(profile, locationId, settings.protocol, latency, avoid);
     this.log('vpn', `connect to ${locationId === null ? 'the fastest location' : `location ${locationId}`}, protocol ${settings.protocol}: ${list.length} config(s) to try`);
     if (list.length === 0) return this.set({ state: 'disconnected', error: 'no_config' });
     this.set({ state: 'connecting', locationId });
 
     let notice: string | undefined;
+    let silent = 0;
     for (const [i, candidate] of list.entries()) {
       if (attempt !== this.attempt) return this.current;
       const serverId = candidate.config.locationId ?? null;
@@ -378,6 +467,15 @@ export class Vpn extends EventEmitter {
       this.pending = connection;
       try {
         ok = await connection.start();
+        // Up is not enough: the test page has to come back through the tunnel, or nothing would.
+        if (ok && !connection.verified && attempt === this.attempt) {
+          ok = await (this.options.checkTraffic ?? (() => this.passesTraffic()))();
+          if (!ok) {
+            silent++;
+            this.log('vpn', 'the tunnel is up but the test page did not come back through it; trying the next');
+            await connection.stop();
+          }
+        }
       } catch (err) {
         this.log('vpn', `failed: ${err instanceof Error ? err.message : String(err)}`);
         if (String(err).includes('engine_missing:openvpn') && this.kit.os !== 'windows') notice = this.kit.os === 'macos' ? 'openvpn_missing_mac' : 'openvpn_missing';
@@ -400,10 +498,11 @@ export class Vpn extends EventEmitter {
       connection.onLost((blocking) => void this.dropped(blocking));
       // Queued before anything below can wait, so a disconnect's restore always comes after it.
       await this.pointSystemDns(connection, settings);
-      await this.applyPrivacy(profile, settings, candidate.config.locationId ?? null);
+      await this.applyPrivacy(profile, settings, candidate.config.locationId ?? null, connection.engine);
       // A disconnect while those ran has already stopped the connection and set the status.
       if (attempt !== this.attempt) return this.current;
-      return this.set({
+      this.asked = { profile, settings, locationId };
+      const status = this.set({
         state: 'connected',
         locationId,
         serverId,
@@ -411,12 +510,69 @@ export class Vpn extends EventEmitter {
         protocol: candidate.config.protocol,
         address: (connection as Connection).address,
         since: Date.now(),
-        notice,
+        notice: notice ?? (avoid && candidate.config.protocol !== avoid ? 'switched' : undefined),
       });
+      this.watch(connection, attempt);
+      return status;
     }
     if (attempt !== this.attempt) return this.current;
     this.log('vpn', 'no config connected');
-    return this.set({ state: 'disconnected', error: 'all_failed', notice });
+    // A chosen protocol that would not carry traffic now: the user is told to pick another.
+    const error = settings.protocol !== 'auto' ? 'protocol_failed' : 'all_failed';
+    return this.set({ state: 'disconnected', error, notice: notice ?? (silent > 0 ? 'no_traffic' : undefined) });
+  }
+
+  // Google's empty page through the system's routes, a few tries while routes and DNS settle.
+  private async passesTraffic(): Promise<boolean> {
+    const probe = new HttpProbe();
+    try {
+      for (let i = 0; i < 3; i++) {
+        const r = await probe.measure(6000);
+        if (r.ok) {
+          this.log('vpn', `the test page came back through the tunnel in ${r.ms} ms`);
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+      return false;
+    } finally {
+      probe.close();
+    }
+  }
+
+  // The live chart's samples while connected, and what happens when traffic stops passing: Auto moves
+  // to another protocol; a chosen protocol stays, with a warning that it does not carry traffic now.
+  private watch(connection: Connection, attempt: number): void {
+    this.monitor?.stop();
+    if (this.options.live === false) return;
+    const monitor = new LiveMonitor({
+      counters: () => connection.counters?.() ?? Promise.resolve(null),
+      onSample: (sample: LiveSample) => this.emit('live', sample),
+      onStall: () => {
+        if (attempt !== this.attempt || this.connection !== connection) return;
+        const asked = this.asked;
+        const protocol = this.current.protocol;
+        if (asked && asked.settings.protocol === 'auto' && protocol) {
+          this.log('vpn', `${protocol} stopped passing traffic; Auto tries another protocol`);
+          void this.connect(asked.profile, asked.settings, asked.locationId, undefined, protocol);
+          return;
+        }
+        this.log('vpn', `${protocol ?? 'the connection'} stopped passing traffic`);
+        this.set({ ...this.current, notice: 'stalled' });
+      },
+      onRecover: () => {
+        if (this.connection !== connection) return;
+        this.log('vpn', 'traffic passes again');
+        if (this.current.notice === 'stalled') this.set({ ...this.current, notice: undefined });
+      },
+    });
+    this.monitor = monitor;
+    monitor.start();
+  }
+
+  private stopWatch(): void {
+    this.monitor?.stop();
+    this.monitor = null;
   }
 
   private connectionFor(candidate: Candidate, settings: Settings): Connection | null {
@@ -436,7 +592,13 @@ export class Vpn extends EventEmitter {
     }
   }
 
-  private async applyPrivacy(profile: AppProfile, settings: Settings, locationId: number | null): Promise<void> {
+  private async applyPrivacy(profile: AppProfile, settings: Settings, locationId: number | null, engine?: Engine): Promise<void> {
+    // OpenVPN and L2TP carry IPv4 only: IPv6 would leave around them from the real address.
+    if (settings.leakProtection !== false && (engine === 'openvpn' || engine === 'l2tp') && this.kit.blockIpv6) {
+      this.ipv6Blocked = true;
+      const ok = await this.kit.blockIpv6(this.ipv6Backup).catch(() => false);
+      this.log('vpn', ok ? 'IPv6 outside the tunnel is blocked while connected' : 'blocking IPv6 outside the tunnel did not work');
+    }
     if (settings.webrtcProtection) this.webrtcBackup = await this.kit.protectWebrtc();
     const timezone = profile.locations.find((l) => l.id === locationId)?.timezone;
     if (settings.timezoneSpoof && timezone) this.zoneBackup = await this.kit.applyZone(timezone);
@@ -448,9 +610,15 @@ export class Vpn extends EventEmitter {
     await this.kit.restoreZone(this.zoneBackup);
     this.zoneBackup = null;
     await this.restoreSystemDns();
+    if (this.ipv6Blocked) {
+      this.ipv6Blocked = false;
+      await this.kit.restoreIpv6?.(this.ipv6Backup).catch(() => false);
+      this.log('vpn', 'IPv6 restored');
+    }
   }
 
   private async dropped(blocking: boolean): Promise<void> {
+    this.stopWatch();
     const previous = this.current;
     this.log('vpn', blocking ? 'the connection dropped; the kill switch holds traffic back' : 'the connection dropped');
     if (!blocking) {
@@ -465,6 +633,8 @@ export class Vpn extends EventEmitter {
     if (this.connection || this.pending || this.current.state !== 'disconnected') this.log('vpn', 'disconnecting');
     // Ends the attempt in progress too: its engine stops now instead of finishing its test.
     this.attempt++;
+    this.stopWatch();
+    this.asked = null;
     this.set({ state: 'disconnecting', locationId });
     const connection = this.connection;
     const pending = this.pending;

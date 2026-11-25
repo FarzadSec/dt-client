@@ -9,6 +9,8 @@ export interface TunOptions {
   dns?: string;
   // Program names whose traffic leaves directly (split tunneling).
   bypassApps?: string[];
+  // A local control port (Clash API) the app reads the tunnel's traffic totals from.
+  controller?: { port: number; secret: string };
 }
 
 // The engines' own sockets leave directly, or the tunnel would carry itself.
@@ -54,5 +56,6 @@ export function singboxTunConfig(opts: TunOptions): Record<string, unknown> {
       auto_detect_interface: true,
       default_domain_resolver: 'local',
     },
+    ...(opts.controller ? { experimental: { clash_api: { external_controller: `127.0.0.1:${opts.controller.port}`, secret: opts.controller.secret } } } : {}),
   };
 }

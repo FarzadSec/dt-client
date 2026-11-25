@@ -34,10 +34,17 @@ object Candidates {
     }
 
     // The configs a connect to locationId tries, Xray protocols, then WireGuard, then OpenVPN, quickest first.
-    fun forLocation(profile: Profile, locationId: Int?, choice: String, pings: Map<String, Int?>): List<Config> =
+    // avoid: a protocol that just stopped passing traffic, tried after the others (Auto's switch).
+    fun forLocation(profile: Profile, locationId: Int?, choice: String, pings: Map<String, Int?>, avoid: String = ""): List<Config> =
         profile.configs
             .filter { runnable(it) && matches(choice, it) && (locationId == null || it.locationId == locationId) }
-            .sortedWith(compareBy<Config>({ rank(it) }, { pings[it.link] ?: Int.MAX_VALUE }))
+            .sortedWith(compareBy<Config>({ if (avoid.isNotEmpty() && it.protocol == avoid) 1 else 0 }, { rank(it) }, { pings[it.link] ?: Int.MAX_VALUE }))
+
+    // The protocol groups the account has that run here, in the order Auto tries them.
+    fun choices(profile: Profile): List<String> {
+        val have = profile.configs.filter { runnable(it) }.map { if (it.protocol == "wireguard" || it.protocol == "openvpn") it.protocol else "xray" }.toSet()
+        return listOf("xray", "wireguard", "openvpn").filter { it in have }
+    }
 
     fun bestPing(profile: Profile, pings: Map<String, Int?>, locationId: Int?): Int? =
         profile.configs.filter { runnable(it) && (locationId == null || it.locationId == locationId) }.mapNotNull { pings[it.link] }.minOrNull()

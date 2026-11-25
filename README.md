@@ -1,20 +1,20 @@
 # DT Connect
 
-The VPN app of DataCraft (Persian: دی‌تی کانکت). A customer signs in with the subscription link of their service and their username; the app then shows their account and servers and connects with the protocols the service offers.
+The VPN app of DataCraft (Persian: دی‌تی کانکت). A customer signs in with the subscription link of their service alone; the app then shows their account and servers and connects with the protocols the service offers. Several accounts can be signed in on one device and switched between.
 
 ## Signing in
 
-The DataCraft bot's delivery message carries both values and a **sign-in QR code**. Its content is a link:
+The subscription link is all it takes: the app asks the panel's information page (`<subscription link>?format=info`, its `emails`) which account the link belongs to and signs in as it. The DataCraft bot's delivery message also has a **sign-in QR code**, whose content is a link (`user` is optional):
 
 ```
 dtconnect://login?sub=<subscription link, percent-encoded>&user=<username, percent-encoded>
 ```
 
 - **Android**: *Scan sign-in QR code* on the welcome page opens the camera (ZXing, works without Google services); *Choose a QR picture* reads the QR code from a screenshot or the photo the bot sent, for a customer whose QR code is on the same phone. Tapping the link opens the app and signs in.
-- **Windows, Linux, macOS**: the app registers `dtconnect://`, so opening the link signs in; pasting it into the subscription link field fills both fields.
-- A plain subscription link (QR code or pasted) fills the link and asks for the username.
+- **Windows, Linux, macOS**: the app registers `dtconnect://`, so opening the link signs in; pasting it into the subscription link field works too.
+- A plain subscription link (QR code or pasted) signs in the same way.
 
-Opening a link of another account while signed in asks before switching.
+Opening a link of another account while signed in asks, then adds that account and switches to it. **Settings → Account** (desktop) and the **Account** tab (Android) list the accounts: add one with its link, switch, or remove.
 
 Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedora, RHEL, openSUSE, Arch and Manjaro; x64 and ARM64) macOS 12 or later (Intel and Apple silicon) and Android 5.0 or later (every processor family; see `android/README.md`). iOS users keep using the subscription link in Streisand, Happ or other apps, and share the same device limit with the app.
 
@@ -54,13 +54,22 @@ The app talks to the Manifold panel's app API on the subscription server (`<subs
 
 | Call | What it does |
 | --- | --- |
+| `GET <subscription link>?format=info` | The subscription's information page; its `emails` name the account the app signs in as. |
 | `POST /login` | The username of one of the link's accounts plus a device id (from Windows' MachineGuid) returns a session token. The device takes a slot of the account's device limit. |
 | `GET /profile` | The account (usage, expiry, devices), the locations, every configuration of the subscription, with the Xray outbound of each one Xray runs, and the panel's notices (Manifold 0.18+). |
 | `POST /logout` | Ends the session. |
 
 App access is switched on in the panel under **Settings → App**, where each server also gets its name, country, city and timezone.
 
-The app fetches the profile again every 10 minutes, when the computer wakes, and when the refresh button in the title bar is pressed, so locations, configs and notices changed on the panel reach it within that time. When the panel cannot be reached the last profile is kept and the button says so.
+The app fetches the profile every time it is opened (started, or its window brought back from the tray; on Android each time it comes to the screen), then every 10 minutes by the clock (so a computer or phone that slept catches up when it wakes), and when the refresh button is pressed; the requests ask that no cache answers for the panel. When the panel cannot be reached the last profile is kept and the button says so. Two days or 3 GB before the plan ends (and once it has), a warning is shown every time the app is opened.
+
+**Ping** is the real delay, measured as the panel's outbound test does: one Xray with a local SOCKS port per V2Ray/WireGuard config (on Android, an Xray instance per config in the app) and a request to `https://www.google.com/generate_204` through each, timed on the kept-alive connection; OpenVPN (none, tls-auth, tls-crypt, tls-crypt-v2) and L2TP/IPsec (an IKEv1 offer; plain L2TP's control request) by the server's answer to the first message of its handshake, so a relay in front of a server shows the whole way. The WireGuard locations a test reached are freed on the panel (`/disconnected`).
+
+A connection counts once the test page comes back through it. While connected the app samples the traffic each second (sing-box's Clash API, OpenVPN's byte counts, `wg.exe`, the PPP link; on Android the app's own bytes) and the test page every 3 s over one kept-alive connection, for the live chart on the home page. When traffic stops passing, Auto moves to another protocol and a chosen protocol shows a warning.
+
+**Leak protection** (on by default): strict routes on sing-box's tunnel, and while OpenVPN or L2TP (IPv4 only) is up, global IPv6 is held back (Windows: a firewall rule for `2000::/3`; Linux: an unreachable route; macOS: IPv6 off on the network services), undone on disconnect and after a crash.
+
+**App and site lock**: locked sites point at this computer in the hosts file while the VPN is off (Windows and macOS also notice the attempt on the local web ports and offer to connect); locked apps found running are closed and opened again after connecting or a skip. On Android the app's own VPN holds locked apps' traffic back, or answers locked sites' names with nowhere.
 
 **Notices** are published from the panel under **Settings → App notices** at a level: info goes to the bell in the title bar, warning and critical also show as an amber or red banner at the top of every page until closed with its ✕, and one that arrives while the window is in the tray comes as a system notification too. Notices are written in Persian, so they are always laid out right to left in Vazirmatn, also when the app is in English. The bell counts what arrived since it was last opened.
 

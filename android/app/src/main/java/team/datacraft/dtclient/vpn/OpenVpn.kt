@@ -277,14 +277,24 @@ class OpenVpn(private val context: Context, private val host: Host) {
             line.startsWith(">NEED-OK:") -> needOk(line)
             line.startsWith(">STATE:") -> state(line)
             line.startsWith(">FATAL:") -> AppLog.w(TAG, line)
+            line.startsWith(">BYTECOUNT:") -> {
+                val counts = line.removePrefix(">BYTECOUNT:").split(',')
+                counts.getOrNull(0)?.trim()?.toLongOrNull()?.let { bytesIn = it }
+                counts.getOrNull(1)?.trim()?.toLongOrNull()?.let { bytesOut = it }
+            }
         }
     }
+
+    // In and out bytes, from the byte counts OpenVPN reports each second once connected.
+    @Volatile var bytesIn = -1L
+    @Volatile var bytesOut = -1L
 
     private fun state(line: String) {
         when (line.removePrefix(">STATE:").split(',').getOrNull(1)) {
             "CONNECTED" -> {
                 if (!connected) {
                     connected = true
+                    send("bytecount 1")
                     result.complete(Outcome.Connected)
                 } else {
                     onReconnected?.invoke()

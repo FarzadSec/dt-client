@@ -32,6 +32,8 @@ export function candidates(
   locationId: number | null,
   choice: ProtocolChoice,
   latency: Map<string, number | null> = new Map(),
+  // A protocol that just stopped passing traffic: tried last.
+  avoid?: string,
 ): Candidate[] {
   const out: Candidate[] = [];
   for (const config of profile.configs) {
@@ -41,7 +43,8 @@ export function candidates(
     out.push({ config, engine });
   }
   const ms = (c: Candidate) => latency.get(c.config.link) ?? Number.POSITIVE_INFINITY;
-  return out.sort((a, b) => rank(a.config, a.engine) - rank(b.config, b.engine) || ms(a) - ms(b));
+  const avoided = (c: Candidate) => (avoid && c.config.protocol === avoid ? 1 : 0);
+  return out.sort((a, b) => avoided(a) - avoided(b) || rank(a.config, a.engine) - rank(b.config, b.engine) || ms(a) - ms(b));
 }
 
 export function serverAddress(config: AppConfig): { host: string; port: number } | null {

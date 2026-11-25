@@ -80,10 +80,17 @@ function profileText(tc: string, extra = ''): string {
 
 async function connectOnce(label: string, text: string): Promise<boolean> {
   const lines: string[] = [];
-  const vpn = new Vpn({ bin, work }, windowsKit, (source, line) => {
-    lines.push(line);
-    log(`${label} ${source}`, line);
-  });
+  // The test server has no way to the internet (and block-outside-dns leaves names nowhere to go), so
+  // the check that traffic passes is left out here; the connection itself is what this test is about.
+  const vpn = new Vpn(
+    { bin, work },
+    windowsKit,
+    (source, line) => {
+      lines.push(line);
+      log(`${label} ${source}`, line);
+    },
+    { checkTraffic: async () => true, live: false },
+  );
   const profile: AppProfile = {
     account: { username: 'ci-user', enabled: true, expiryTime: 0, upload: 0, download: 0, total: 0, deviceLimit: 0, devices: 0 },
     locations: [{ id: 1, name: 'Test', countryCode: 'DE', city: '', timezone: '' }],

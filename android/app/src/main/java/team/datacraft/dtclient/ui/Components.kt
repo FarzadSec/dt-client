@@ -1,6 +1,9 @@
 package team.datacraft.dtclient.ui
 
+import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,12 +13,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,10 +32,15 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -53,28 +61,28 @@ import team.datacraft.dtclient.R
 // The building blocks every page shares: cards, buttons, rows and flags.
 
 @Composable
-fun DtCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, padding: Dp = 18.dp, content: @Composable ColumnScope.() -> Unit) {
+fun DtCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, padding: Dp = 14.dp, content: @Composable ColumnScope.() -> Unit) {
     val c = LocalDt.current
-    var m = modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(c.card)
+    var m = modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(c.card)
     if (onClick != null) m = m.clickable(onClick = onClick)
     Column(m.padding(padding), content = content)
 }
 
 @Composable
 fun PageTitle(text: String) {
-    Text(text, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = LocalDt.current.text, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+    Text(text, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = LocalDt.current.text, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
 }
 
 @Composable
 fun SectionHeader(title: String, action: String? = null, onAction: (() -> Unit)? = null) {
     val c = LocalDt.current
-    Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, fontSize = 18.sp, color = c.muted, modifier = Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, fontSize = 15.sp, color = c.muted, modifier = Modifier.weight(1f))
         if (action != null && onAction != null) {
             Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onAction).padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(action, fontSize = 17.sp, color = c.text, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.width(4.dp))
-                Icon(painterResource(R.drawable.ic_chevron_end), null, tint = c.text, modifier = Modifier.size(18.dp))
+                Text(action, fontSize = 14.sp, color = c.text, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.width(2.dp))
+                Icon(painterResource(R.drawable.ic_chevron_end), null, tint = c.text, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -88,13 +96,13 @@ fun PrimaryButton(text: String, modifier: Modifier = Modifier, enabled: Boolean 
         enabled = enabled && !loading,
         shape = RoundedCornerShape(50),
         colors = ButtonDefaults.buttonColors(containerColor = c.button, contentColor = c.onButton, disabledContainerColor = c.button.copy(alpha = 0.45f), disabledContentColor = c.onButton.copy(alpha = 0.7f)),
-        modifier = modifier.fillMaxWidth().height(56.dp),
+        modifier = modifier.fillMaxWidth().height(48.dp),
     ) {
         if (loading) {
-            CircularProgressIndicator(Modifier.size(20.dp), color = c.onButton, strokeWidth = 2.dp)
+            CircularProgressIndicator(Modifier.size(18.dp), color = c.onButton, strokeWidth = 2.dp)
             Spacer(Modifier.width(10.dp))
         }
-        Text(text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Text(text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -107,18 +115,18 @@ fun SecondaryButton(text: String, modifier: Modifier = Modifier, icon: Int? = nu
         shape = RoundedCornerShape(50),
         border = BorderStroke(1.5.dp, if (color != null) color.copy(alpha = 0.6f) else c.line),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = ink),
-        modifier = modifier.fillMaxWidth().height(56.dp),
+        modifier = modifier.fillMaxWidth().height(48.dp),
     ) {
         if (icon != null) {
-            Icon(painterResource(icon), null, modifier = Modifier.size(20.dp))
+            Icon(painterResource(icon), null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
         }
-        Text(text, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-fun CircleIconButton(icon: Int, description: String, modifier: Modifier = Modifier, size: Dp = 48.dp, background: Color? = null, tint: Color? = null, onClick: () -> Unit) {
+fun CircleIconButton(icon: Int, description: String, modifier: Modifier = Modifier, size: Dp = 42.dp, background: Color? = null, tint: Color? = null, onClick: () -> Unit) {
     val c = LocalDt.current
     Box(
         modifier.size(size).clip(CircleShape).background(background ?: c.card).clickable(onClick = onClick)
@@ -130,23 +138,39 @@ fun CircleIconButton(icon: Int, description: String, modifier: Modifier = Modifi
 }
 
 @Composable
-fun IconTile(icon: Int, modifier: Modifier = Modifier, size: Dp = 48.dp, tint: Color? = null) {
+fun IconTile(icon: Int, modifier: Modifier = Modifier, size: Dp = 40.dp, tint: Color? = null) {
     val c = LocalDt.current
     Box(modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(c.cardHigh), contentAlignment = Alignment.Center) {
         Icon(painterResource(icon), null, tint = tint ?: c.accent, modifier = Modifier.size(size * 0.5f))
     }
 }
 
+// Round flags drawn ahead from the desktop app's flag set (assets/flags, scripts/gen-android-flags.py),
+// so every phone shows the same crisp, centred circle; an emoji flag is a rectangle of a different size
+// on every phone and never sat right in the circle.
+private val flagCache = HashMap<String, ImageBitmap?>()
+
+fun flagBitmap(context: Context, code: String): ImageBitmap? {
+    val key = code.lowercase().let { if (it == "uk") "gb" else it }
+    if (key.length != 2) return null
+    return synchronized(flagCache) {
+        flagCache.getOrPut(key) {
+            runCatching { context.assets.open("flags/$key.webp").use { BitmapFactory.decodeStream(it)?.asImageBitmap() } }.getOrNull()
+        }
+    }
+}
+
 // A flag as a round badge, like the location lists of the big VPN apps; a globe when the country is unknown.
 @Composable
-fun FlagCircle(code: String, size: Dp = 40.dp) {
+fun FlagCircle(code: String, size: Dp = 36.dp) {
     val c = LocalDt.current
+    val context = LocalContext.current
+    val bitmap = remember(code) { flagBitmap(context, code) }
     Box(Modifier.size(size).clip(CircleShape).background(c.cardHigh), contentAlignment = Alignment.Center) {
-        val emoji = flag(code)
-        if (emoji == null) {
+        if (bitmap == null) {
             Icon(painterResource(R.drawable.ic_globe), null, tint = c.muted, modifier = Modifier.size(size * 0.55f))
         } else {
-            Text(emoji, fontSize = (size.value * 1.18f).sp, lineHeight = (size.value * 1.3f).sp, modifier = Modifier.wrapContentSize(unbounded = true))
+            Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
     }
 }
@@ -167,12 +191,12 @@ fun StatusPill(text: String, good: Boolean) {
 @Composable
 fun ToggleRow(icon: Int, title: String, hint: String, value: Boolean, onChange: (Boolean) -> Unit) {
     val c = LocalDt.current
-    Row(Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconTile(icon, size = 44.dp)
-        Spacer(Modifier.width(14.dp))
+    Row(Modifier.fillMaxWidth().clickable { onChange(!value) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconTile(icon, size = 38.dp)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.text)
-            if (hint.isNotEmpty()) Text(hint, fontSize = 13.sp, color = c.muted, lineHeight = 20.sp)
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = c.text)
+            if (hint.isNotEmpty()) Text(hint, fontSize = 12.sp, color = c.muted, lineHeight = 18.sp)
         }
         Spacer(Modifier.width(8.dp))
         Switch(
@@ -186,12 +210,12 @@ fun ToggleRow(icon: Int, title: String, hint: String, value: Boolean, onChange: 
 @Composable
 fun NavRow(icon: Int, title: String, subtitle: String = "", color: Color? = null, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     val c = LocalDt.current
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconTile(icon, size = 44.dp, tint = color)
-        Spacer(Modifier.width(14.dp))
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconTile(icon, size = 38.dp, tint = color)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = color ?: c.text)
-            if (subtitle.isNotEmpty()) Text(subtitle, fontSize = 13.sp, color = c.muted, lineHeight = 20.sp)
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = color ?: c.text)
+            if (subtitle.isNotEmpty()) Text(subtitle, fontSize = 12.sp, color = c.muted, lineHeight = 18.sp)
         }
         if (trailing != null) trailing() else Icon(painterResource(R.drawable.ic_chevron_end), null, tint = c.muted, modifier = Modifier.size(20.dp))
     }
@@ -208,12 +232,12 @@ fun ChoiceChips(options: List<Pair<String, String>>, value: String, onChange: (S
                 label,
                 color = if (on) c.text else c.muted,
                 fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 modifier = Modifier.clip(RoundedCornerShape(50))
                     .background(if (on) c.button.copy(alpha = 0.16f) else c.cardHigh)
                     .border(1.5.dp, if (on) c.button else Color.Transparent, RoundedCornerShape(50))
                     .clickable { onChange(key) }
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
             )
         }
     }

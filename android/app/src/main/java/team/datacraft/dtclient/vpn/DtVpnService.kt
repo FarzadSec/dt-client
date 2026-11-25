@@ -64,9 +64,31 @@ class DtVpnService : VpnService() {
         fun disconnect(context: Context) {
             context.startService(Intent(context, DtVpnService::class.java).setAction(ACTION_DISCONNECT))
         }
+
+        const val ACTION_LOCK = "team.datacraft.dtclient.LOCK"
+        @Volatile var instance: DtVpnService? = null
+        @Volatile private var skipUntil = 0L
+
+        // The lock follows the settings: on while the VPN is off and something is locked (VPN permission given).
+        fun lock(context: Context) {
+            if (VpnService.prepare(context) != null) return
+            runCatching { context.startService(Intent(context, DtVpnService::class.java).setAction(ACTION_LOCK)) }
+        }
+
+        // Lifts the lock for some minutes; it comes back by itself if the VPN is still off then.
+        fun skipLock(context: Context, minutes: Int) {
+            skipUntil = System.currentTimeMillis() + minutes * 60_000L
+            VpnState.lockHit.value = null
+            instance?.let { svc -> svc.scope.launch { svc.applyLock() } }
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ lock(context) }, minutes * 60_000L + 1000)
+        }
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val guard by lazy { Guard(this) }
+    private var monitor: Job? = null
+    // What the connection up now was asked with, for Auto's switch when it stops passing traffic.
+    @Volatile private var askedLocation: Int? = null
     private var tun: ParcelFileDescriptor? = null
     @Volatile private var openvpn: OpenVpn? = null
     // The connection that is up, until stopEngines takes it down, and the tunnel address OpenVPN was given.
@@ -74,8 +96,32 @@ class DtVpnService : VpnService() {
     @Volatile private var openvpnAddress: String? = null
     private var work: Job? = null
     private var refresher: Job? = null
+    @Volatile private var xraySocksPort: Int? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
+    // The lock on when the VPN is off and something is locked; otherwise off (and the service stops
+    // when it has nothing else to do).
+    internal fun applyLock() {
+        val off = VpnState.status.value.state == ConnState.Disconnected && tun == null && openvpn == null
+        val want = off && Guard.wanted(Repo.settings.value) && System.currentTimeMillis() >= skipUntil
+        if (want) {
+            if (!guard.start(Repo.settings.value)) AppLog.w(TAG, "the lock could not start")
+        } else {
+            guard.stop()
+            if (off) stopSelf()
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_LOCK) {
+            if (work?.isActive != true) scope.launch { applyLock() }
+            // Not restarted by the system on its own: a restart without the intent would connect.
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_DISCONNECT) {
             AppLog.i(TAG, "disconnecting")
             work?.cancel()
@@ -83,7 +129,7 @@ class DtVpnService : VpnService() {
                 set(Status(ConnState.Disconnecting, VpnState.status.value.locationId))
                 stopEngines()
                 set(Status(ConnState.Disconnected, VpnState.status.value.locationId))
-                stopSelf()
+                applyLock()
             }
             return START_NOT_STICKY
         }
@@ -101,6 +147,7 @@ class DtVpnService : VpnService() {
 
     override fun onRevoke() {
         AppLog.w(TAG, "Android took the VPN away (another VPN started, or the permission was revoked)")
+        guard.stop()
         scope.launch {
             stopEngines()
             set(Status(ConnState.Disconnected, error = "connection_lost"))
@@ -109,6 +156,9 @@ class DtVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        if (instance === this) instance = null
+        guard.stop()
+        monitor?.cancel()
         refresher?.cancel()
         openvpn?.let { runCatching { it.stop() } }
         openvpn = null
@@ -131,6 +181,9 @@ class DtVpnService : VpnService() {
         val address = openvpnAddress
         connectedTo = null
         openvpnAddress = null
+        monitor?.cancel()
+        monitor = null
+        VpnState.live.value = emptyList()
         refresher?.cancel()
         openvpn?.let { runCatching { it.stop() } }
         openvpn = null
@@ -173,15 +226,17 @@ class DtVpnService : VpnService() {
         }
     }.onFailure { AppLog.w(TAG, "test page: $it") }.getOrDefault(false)
 
-    private suspend fun connect(locationId: Int?) {
+    private suspend fun connect(locationId: Int?, avoid: String = "") {
         stopEngines()
+        // The lock gives way: the VPN takes its place.
+        guard.stop()
         val profile = Repo.profile.value
         val settings = Repo.settings.value
         if (profile == null) {
             set(Status(ConnState.Disconnected, locationId, error = "no_config"))
             return
         }
-        val list = Candidates.forLocation(profile, locationId, settings.protocol, Repo.pings.value)
+        val list = Candidates.forLocation(profile, locationId, settings.protocol, Repo.pings.value, avoid)
         AppLog.i(TAG, "connect to ${locationId?.let { "location $it" } ?: "the fastest location"}, protocol ${settings.protocol}: ${list.size} config(s) to try")
         if (list.isEmpty()) {
             set(Status(ConnState.Disconnected, locationId, error = "no_config"))
@@ -212,16 +267,87 @@ class DtVpnService : VpnService() {
                 }
                 Attempt.Started -> {
                     Repo.updateSettings { it.copy(locationId = locationId) }
-                    val up = Status(ConnState.Connected, locationId, config.locationId, config.name, config.protocol, System.currentTimeMillis())
+                    val notice = if (avoid.isNotEmpty() && config.protocol != avoid) "switched" else ""
+                    val up = Status(ConnState.Connected, locationId, config.locationId, config.name, config.protocol, System.currentTimeMillis(), notice = notice)
                     connectedTo = up
+                    askedLocation = locationId
                     set(up)
                     startRefresher()
+                    startMonitor(config)
                     return
                 }
             }
         }
         AppLog.i(TAG, "no config connected")
-        set(Status(ConnState.Disconnected, locationId, error = "all_failed"))
+        // A chosen protocol that would not connect now: the user is told to pick another.
+        set(Status(ConnState.Disconnected, locationId, error = if (settings.protocol != "auto") "protocol_failed" else "all_failed"))
+        applyLock()
+    }
+
+    // While connected: a sample a second of the traffic each way (the app's own bytes: the engines run in
+    // it) and every 3 s the round trip of the test page through Xray, or of OpenVPN's server. Traffic that
+    // stops passing makes Auto move to another protocol, and a chosen one shows a warning.
+    private fun startMonitor(config: Config) {
+        monitor?.cancel()
+        val socks = xraySocksPort
+        val ovpn = if (config.protocol == "openvpn") OpenVpnProfile.decode(config.link)?.let { OpenVpnProbe.target(it) } else null
+        monitor = scope.launch {
+            val probe = HttpProbe(socks)
+            var last = Traffic.totals()
+            var tick = 0
+            var failures = 0
+            var rxAtFailure = 0L
+            var stalled = false
+            var quietSince = System.currentTimeMillis()
+            var lastIn = -1L
+            VpnState.live.value = emptyList()
+            while (isActive) {
+                delay(1000)
+                val now = Traffic.totals()
+                val rx = if (now != null && last != null) (now.first - last.first).coerceAtLeast(0) else 0L
+                val tx = if (now != null && last != null) (now.second - last.second).coerceAtLeast(0) else 0L
+                last = now
+                var ms: Int? = -1
+                if (tick++ % 3 == 0) {
+                    ms = if (config.protocol == "openvpn") ovpn?.let { t -> OpenVpnProbe.handshakeMs(t, 3000, protect = { protect(it) }, protectTcp = { protect(it) }) } else probe.once(5000)
+                    if (ms != null) {
+                        failures = 0
+                        if (stalled && config.protocol != "openvpn") {
+                            stalled = false
+                            VpnState.status.value.takeIf { it.notice == "stalled" }?.let { set(it.copy(notice = "")) }
+                        }
+                    } else {
+                        if (failures == 0) rxAtFailure = now?.first ?: 0L
+                        failures++
+                    }
+                }
+                // OpenVPN: the server's keepalive alone brings bytes in every 10 s; none for 40 s is a stall.
+                val bytesIn = openvpn?.bytesIn ?: -1L
+                if (bytesIn >= 0 && bytesIn != lastIn) {
+                    lastIn = bytesIn
+                    quietSince = System.currentTimeMillis()
+                    if (stalled && config.protocol == "openvpn") {
+                        stalled = false
+                        VpnState.status.value.takeIf { it.notice == "stalled" }?.let { set(it.copy(notice = "")) }
+                    }
+                }
+                VpnState.live.value = (VpnState.live.value + team.datacraft.dtclient.data.LiveSample(System.currentTimeMillis(), rx, tx, ms)).takeLast(120)
+                val cameIn = (now?.first ?: 0L) - rxAtFailure
+                val stall = if (config.protocol == "openvpn") lastIn >= 0 && System.currentTimeMillis() - quietSince > 40_000 else failures >= 3 && cameIn < 16 * 1024
+                if (stall && !stalled) {
+                    stalled = true
+                    val current = VpnState.status.value
+                    if (Repo.settings.value.protocol == "auto" && current.state == ConnState.Connected) {
+                        AppLog.w(TAG, "${config.protocol} stopped passing traffic; Auto tries another protocol")
+                        val location = askedLocation
+                        work = scope.launch { connect(location, config.protocol) }
+                        return@launch
+                    }
+                    AppLog.w(TAG, "${config.protocol} stopped passing traffic")
+                    if (current.state == ConnState.Connected) set(current.copy(notice = "stalled"))
+                }
+            }
+        }
     }
 
     private enum class Attempt { Started, Failed, Denied }
@@ -268,6 +394,7 @@ class DtVpnService : VpnService() {
         val hosts = resolve(names)
         for (name in names) AppLog.i(TAG, hosts[name]?.let { "$name is ${it.joinToString(", ")}" } ?: "$name did not resolve; Xray will try it itself")
         val port = freePort()
+        xraySocksPort = port
         runCatching { xrayLog.delete() }
         fun run(level: String): Boolean {
             val json = XrayConfig.build(outbound, port, settings.iranDirect, settings.adBlock, dns, hosts, level, xrayLog.absolutePath)
@@ -326,6 +453,7 @@ class DtVpnService : VpnService() {
 
     // OpenVPN brings the tunnel up itself and asks for the VPN interface on the way (openTun).
     private suspend fun startOpenVpn(config: Config, settings: Settings): Attempt {
+        xraySocksPort = null
         val profile = OpenVpnProfile.decode(config.link)
         if (profile == null) {
             AppLog.w(TAG, "${config.name}: not an OpenVPN profile")
@@ -349,7 +477,7 @@ class DtVpnService : VpnService() {
                     val locationId = VpnState.status.value.locationId
                     stopEngines()
                     set(Status(ConnState.Disconnected, locationId, error = "connection_lost"))
-                    stopSelf()
+                    applyLock()
                 }
             }
         }
@@ -410,12 +538,17 @@ class DtVpnService : VpnService() {
         return runCatching { builder.establish() }.getOrNull()
     }
 
-    // While connected the profile is fetched every 10 minutes; a new warning or critical notice is a notification too.
+    // While connected the profile is fetched every 10 minutes by the clock (a phone that slept catches up
+    // when it wakes); a new warning or critical notice is a notification too.
     private fun startRefresher() {
         refresher?.cancel()
         refresher = scope.launch {
+            var lastTry = 0L
             while (isActive) {
-                delay(Repo.REFRESH_MS)
+                delay(30_000)
+                val now = System.currentTimeMillis()
+                if (now - Repo.fetchedAt.value < Repo.REFRESH_MS || now - lastTry < 2 * 60_000) continue
+                lastTry = now
                 val known = Repo.profile.value?.notices?.maxOfOrNull { it.id } ?: 0
                 if (Repo.refresh() == null) {
                     Repo.profile.value?.notices?.filter { it.id > known && it.level != "info" }?.forEach { notify(it.id, it.level, it.body) }

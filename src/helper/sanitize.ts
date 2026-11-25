@@ -1,3 +1,4 @@
+import { siteName } from '../shared/sites';
 import { defaultSettings, type AppConfig, type AppLocation, type AppProfile, type ProtocolChoice, type Settings } from '../shared/types';
 
 export interface ConnectRequest {
@@ -47,7 +48,7 @@ function config(v: unknown): AppConfig | null {
 function settings(v: unknown): Settings {
   const s = isObject(v) ? v : {};
   const out: Settings = { ...defaultSettings };
-  for (const key of ['killSwitch', 'autoReconnect', 'webrtcProtection', 'timezoneSpoof', 'iranDirect', 'adBlock', 'splitTunneling'] as const) {
+  for (const key of ['killSwitch', 'autoReconnect', 'webrtcProtection', 'timezoneSpoof', 'iranDirect', 'adBlock', 'splitTunneling', 'leakProtection'] as const) {
     if (typeof s[key] === 'boolean') out[key] = s[key] as boolean;
   }
   if (protocols.includes(s.protocol as ProtocolChoice)) out.protocol = s.protocol as ProtocolChoice;
@@ -59,6 +60,17 @@ function settings(v: unknown): Settings {
     ? s.splitApps.filter((a): a is { name: string; path: string } => isObject(a) && programName.test(str(a.name, 128))).map((a) => ({ name: a.name, path: str(a.path, 4096) }))
     : [];
   return out;
+}
+
+// The locked sites for the hosts file: plain host names only, and an address the app may point them at.
+export function sanitizeLock(params: unknown): { sites: string[]; address: string } {
+  if (!isObject(params) || !Array.isArray(params.sites)) bad();
+  const sites = params.sites
+    .slice(0, 300)
+    .map((s) => siteName(str(s, 253)))
+    .filter((s): s is string => s !== null);
+  const address = ['127.0.0.1', '127.77.7.7', '0.0.0.0'].includes(str(params.address, 16)) ? (params.address as string) : '0.0.0.0';
+  return { sites, address };
 }
 
 export function sanitizeConnect(params: unknown): ConnectRequest {

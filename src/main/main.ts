@@ -9,18 +9,21 @@ import { engineOf, useOs } from '../shared/engines';
 import { helperSocket } from '../shared/helperProtocol';
 import { osOf } from '../shared/platform';
 import { linkSecrets, redact } from '../shared/redact';
+import { planWarnings, warningKey } from '../shared/warnings';
 import { parseSignIn, signInScheme, type SignInCode } from '../shared/signin';
-import type { AppProfile, PingResult, ProfileUpdate, Settings, SplitApp, Status } from '../shared/types';
-import { ApiError, AppApi } from './api';
-import { answersOnUdp, serverAddress } from './candidates';
-import { tcpPing } from './health';
+import type { AppProfile, LiveSample, LockHit, PingResult, ProfileUpdate, Settings, SplitApp, Status } from '../shared/types';
+import { ApiError, AppApi, subscriptionAccounts } from './api';
+import { serverAddress } from './candidates';
+import { Guard } from './guard';
 import { appApiBase, LinkError } from './link';
 import { windowsKit } from './os/windows';
 import { SessionLog, tail } from './log';
-import { icmpPing } from './ping';
+import { realDelays, wireguardLocations } from './pinger';
 import { RemoteVpn } from './remoteVpn';
-import { Store } from './store';
+import { accountId, Store } from './store';
 import { setAutostart } from './system/autostart';
+import { applyHostsLock } from './system/hosts';
+import { run } from './system/run';
 import { deviceId, deviceName } from './system/device';
 import { Vpn } from './vpn';
 
@@ -82,6 +85,9 @@ let panelTold: Promise<void> = Promise.resolve();
 let fetchedAt = 0;
 // The newest notice the window has had; only ones after it arrive as system notifications.
 let noticesKnownUpTo = 0;
+// The live chart's last two minutes, for a window opened while connected.
+let liveHistory: LiveSample[] = [];
+let guard: Guard;
 
 // Changes made on the panel reach a running app within this time; the refresh button is for now.
 const profileRefreshMs = 10 * 60_000;
@@ -119,19 +125,68 @@ function profileSummary(profile: AppProfile): string {
   return `${profile.locations.length} location(s), ${profile.configs.length} config(s): ${[...counts].map(([p, n]) => `${p} ${n}`).join(', ') || 'none'}`;
 }
 
-async function login(subLink: string, username: string): Promise<AppProfile> {
-  sessionLog.secret(...linkSecrets(subLink));
-  log('app', `signing in as ${username.trim()} on ${new URL(appApiBase(subLink)).host}`);
-  const api = new AppApi(appApiBase(subLink), userAgent);
+// Signs in with the subscription link alone: the panel's information page names its account. A
+// dtconnect:// link may carry the username, which then goes first. Signing in to another subscription
+// adds it to the accounts and makes it the one in use.
+async function login(subLink: string, username?: string): Promise<AppProfile> {
+  const link = String(subLink ?? '').trim();
+  sessionLog.secret(...linkSecrets(link));
+  const api = new AppApi(appApiBase(link), userAgent);
+  let names = [String(username ?? '').trim()].filter(Boolean);
+  if (names.length === 0) {
+    log('app', `reading the account of the subscription on ${new URL(appApiBase(link)).host}`);
+    names = await subscriptionAccounts(link, userAgent);
+  }
   const info = await device();
-  const token = await api.login(username.trim(), info);
-  sessionLog.secret(token);
-  const profile = await api.profile(token, info.deviceId);
-  log('app', `signed in: ${profileSummary(profile)}`);
-  store.saveSession(subLink.trim(), username.trim(), token);
-  store.saveProfile(profile);
-  profileCache = profile;
-  return profile;
+  let lastError: unknown = null;
+  for (const name of names.slice(0, 5)) {
+    log('app', `signing in as ${name} on ${new URL(appApiBase(link)).host}`);
+    try {
+      const token = await api.login(name, info);
+      sessionLog.secret(token);
+      const profile = await api.profile(token, info.deviceId);
+      log('app', `signed in: ${profileSummary(profile)}`);
+      if (store.session()?.id !== accountId(link, name)) await vpn.disconnect();
+      store.saveSession(link, name, token);
+      store.saveProfile(profile);
+      profileCache = profile;
+      fetchedAt = Date.now();
+      noticesKnownUpTo = Math.max(0, ...(profile.notices ?? []).map((n) => n.id));
+      return profile;
+    } catch (err) {
+      lastError = err;
+      // Another name of the same subscription may be the one the panel knows.
+      if (!(err instanceof ApiError && err.code === 'bad_login')) throw err;
+    }
+  }
+  throw lastError ?? new ApiError('bad_login', 401);
+}
+
+// The accounts signed in on this device; switching to one disconnects first, then fetches its profile.
+async function switchAccount(id: string): Promise<AppProfile | null> {
+  if (store.session()?.id === id) return refreshProfile(false);
+  const target = store.account(id);
+  if (!target) return null;
+  await vpn.disconnect();
+  if (!target.token) return login(target.subLink, target.username);
+  store.setActive(id);
+  sessionLog.secret(...linkSecrets(target.subLink), target.token);
+  profileCache = store.profile();
+  fetchedAt = 0;
+  log('app', `switched to the account ${target.username}`);
+  const update = await fetchProfile().catch(() => null);
+  return update?.profile ?? profileCache;
+}
+
+async function removeAccount(id: string): Promise<AppProfile | null> {
+  if (store.session()?.id === id) return logout();
+  const target = store.account(id);
+  if (target?.token) {
+    const info = await device();
+    await new AppApi(appApiBase(target.subLink), userAgent).logout(target.token, info.deviceId).catch(() => undefined);
+  }
+  store.removeAccount(id);
+  return profileCache;
 }
 
 const sessionEndingCodes = ['bad_session', 'app_disabled', 'not_found'];
@@ -147,6 +202,7 @@ async function fetchProfile(): Promise<ProfileUpdate | null> {
     if (Date.now() - fetchedAt > 60_000) log('app', `profile: ${profileSummary(profileCache)}`);
     fetchedAt = Date.now();
     noticesKnownUpTo = Math.max(noticesKnownUpTo, ...(profileCache.notices ?? []).map((n) => n.id));
+    warnPlan(profileCache);
     return { profile: profileCache, fetchedAt };
   } catch (err) {
     log('app', `profile refresh failed: ${codeOf(err)}`);
@@ -167,19 +223,59 @@ async function refreshProfile(force: boolean): Promise<AppProfile | null> {
   return (await fetchProfile())?.profile ?? null;
 }
 
-// Runs every 10 minutes and when the computer wakes; the window and the tray learn the result.
-async function backgroundRefresh(): Promise<void> {
-  if (!store.session()) return;
-  const knownBefore = noticesKnownUpTo;
-  try {
-    const update = await fetchProfile();
-    if (!update) return;
-    window?.webContents.send('profile', update);
-    announceNew(update.profile, knownBefore);
-  } catch (err) {
-    window?.webContents.send('signedOut', codeOf(err));
-  }
+// Runs every 10 minutes, when the computer wakes and whenever the window is opened; the window and the
+// tray learn the result. Failed tries are repeated every two minutes until one gets through.
+let lastTry = 0;
+let refreshing: Promise<void> | null = null;
+function backgroundRefresh(): Promise<void> {
+  if (!store.session()) return Promise.resolve();
+  refreshing ??= (async () => {
+    const knownBefore = noticesKnownUpTo;
+    lastTry = Date.now();
+    try {
+      const update = await fetchProfile();
+      if (!update) return;
+      window?.webContents.send('profile', update);
+      announceNew(update.profile, knownBefore);
+    } catch (err) {
+      window?.webContents.send('signedOut', codeOf(err));
+    }
+  })().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
 }
+
+function refreshDue(now = Date.now()): boolean {
+  return now - fetchedAt >= profileRefreshMs && now - lastTry >= 2 * 60_000;
+}
+
+// The end of the plan near (two days, 3 GB) or reached: a system notification once each, beside the
+// warning the window shows every time it is opened.
+const warnedPlans = new Map<string, string>();
+function warnPlan(profile: AppProfile): void {
+  const id = store.session()?.id;
+  if (!id) return;
+  const warnings = planWarnings(profile.account);
+  const key = warningKey(warnings);
+  const before = warnedPlans.get(id);
+  warnedPlans.set(id, key);
+  // The open window shows the warning itself; one in the tray gets a notification.
+  if (key === '' || key === before || (before === undefined && window?.isVisible())) return;
+  const text = planNotice[store.settings().language];
+  for (const w of warnings) notify(w.ended ? text.ended[w.kind] : text.near[w.kind], profile.account.username);
+}
+
+const planNotice = {
+  fa: {
+    near: { expiry: 'کمتر از ۲ روز از اشتراک شما مانده است', traffic: 'کمتر از ۳ گیگابایت از حجم اشتراک شما مانده است' },
+    ended: { expiry: 'اشتراک شما به پایان رسیده است', traffic: 'حجم اشتراک شما تمام شده است' },
+  },
+  en: {
+    near: { expiry: 'Less than 2 days left on your plan', traffic: 'Less than 3 GB left on your plan' },
+    ended: { expiry: 'Your plan has ended', traffic: 'Your plan\'s traffic is used up' },
+  },
+};
 
 function announceNew(profile: AppProfile, knownBefore: number): void {
   for (const n of profile.notices ?? []) {
@@ -188,44 +284,51 @@ function announceNew(profile: AppProfile, knownBefore: number): void {
   }
 }
 
-async function logout(): Promise<void> {
+// Signs out of the account in use; another signed-in account, if there is one, takes its place.
+async function logout(): Promise<AppProfile | null> {
   await vpn.disconnect();
   const session = store.session();
   if (session) {
     const info = await device();
     await new AppApi(appApiBase(session.subLink), userAgent).logout(session.token, info.deviceId).catch(() => undefined);
+    store.removeAccount(session.id);
   }
-  store.clearSession();
   profileCache = null;
+  fetchedAt = 0;
+  const next = store.accounts().find((a) => a.signedIn);
+  if (!next) return null;
+  return switchAccount(next.id);
 }
 
-// One probe per server: TCP connect time, or ICMP for servers that answer on UDP only or refuse TCP.
-async function ping(): Promise<PingResult[]> {
+// The real delay of each config (pinger.ts). One test at a time; a request while one runs shares it.
+let pinging: Promise<PingResult[]> | null = null;
+let lastPings: { at: number; results: PingResult[] } = { at: 0, results: [] };
+function ping(): Promise<PingResult[]> {
   const profile = profileCache ?? store.profile();
-  if (!profile) return [];
-  const probes = new Map<string, Promise<number | null>>();
-  const once = (key: string, probe: () => Promise<number | null>) => {
-    let p = probes.get(key);
-    if (!p) probes.set(key, (p = probe()));
-    return p;
-  };
-  const usable = profile.configs.filter((c) => engineOf(c));
-  return Promise.all(
-    usable.map(async (config) => {
-      const target = serverAddress(config);
-      if (!target) return { link: config.link, ms: null };
-      const icmp = () => once(`icmp ${target.host}`, () => icmpPing(target.host));
-      const ms = answersOnUdp(config) ? await icmp() : ((await once(`tcp ${target.host}:${target.port}`, () => tcpPing(target.host, target.port))) ?? (await icmp()));
-      return { link: config.link, ms };
-    }),
-  );
+  if (!profile) return Promise.resolve([]);
+  pinging ??= (async () => {
+    const work = path.join(app.getPath('userData'), 'test');
+    const results = await realDelays(profile, { xray: path.join(binDir, system === 'windows' ? 'xray.exe' : 'xray'), work }, log);
+    lastPings = { at: Date.now(), results };
+    // A WireGuard test is a handshake, which the panel counts as a seat until the device says it left.
+    const using = lastStatus.state === 'connected' && lastStatus.protocol === 'wireguard' ? (lastStatus.serverId ?? null) : null;
+    for (const locationId of wireguardLocations(profile, results)) {
+      if (locationId !== using) void tellPanelLeft({ protocol: 'wireguard', locationId });
+    }
+    return results;
+  })().finally(() => {
+    pinging = null;
+  });
+  return pinging;
 }
 
 async function connect(locationId: number | null): Promise<Status> {
   const profile = await refreshProfile(true).catch(() => profileCache ?? store.profile());
   if (!profile) return vpn.status();
   store.saveSettings({ locationId });
-  const latency = locationId === null ? new Map((await ping()).map((p) => [p.link, p.ms])) : undefined;
+  // The fastest location by the last test, when it is recent; a new one otherwise.
+  const recent = Date.now() - lastPings.at < 5 * 60_000 ? lastPings.results : null;
+  const latency = locationId === null ? new Map((recent ?? (await ping())).map((p) => [p.link, p.ms])) : undefined;
   if (latency) log('app', `ping before choosing the fastest: ${[...latency.values()].filter((ms) => ms !== null).length}/${latency.size} servers answered`);
   return vpn.connect(profile, store.settings(), locationId, latency);
 }
@@ -296,6 +399,7 @@ async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
   if (patch.startWithWindows !== undefined && app.isPackaged) await setAutostart(system, patch.startWithWindows, process.env.APPIMAGE ?? process.execPath);
   const settings = store.saveSettings(patch);
   if (patch.theme) applyTheme(settings);
+  if ('lockEnabled' in patch || 'lockApps' in patch || 'lockSites' in patch) guard.update(settings);
   return settings;
 }
 
@@ -309,6 +413,13 @@ async function pickApp(): Promise<SplitApp | null> {
   const base = path.basename(file);
   if (system === 'windows') return { name: base.toLowerCase(), path: file };
   return { name: system === 'macos' ? base.replace(/\.app$/i, '') : base, path: file };
+}
+
+function onLockHit(hit: LockHit): void {
+  showWindow();
+  window?.webContents.send('lockHit', hit);
+  const fa = store.settings().language === 'fa';
+  notify(fa ? 'وی‌پی‌ان خاموش است' : 'The VPN is off', fa ? `${hit.name} بدون وی‌پی‌ان باز نمی‌شود` : `${hit.name} does not open without the VPN`);
 }
 
 async function appIcon(file: string): Promise<string | null> {
@@ -391,6 +502,9 @@ function onStatus(status: Status): void {
   }
   bookActivity();
   lastStatus = status;
+  if (status.state === 'connecting') guard.connecting();
+  guard.vpn(status.state === 'connected' || status.blocking === true);
+  if (status.state === 'connected' && previous.state !== 'connected') liveHistory = [];
   const text = notices[store.settings().language];
   if (status.state === 'connected' && previous.state !== 'connected') {
     reconnectAttempts = 0;
@@ -414,10 +528,14 @@ function onStatus(status: Status): void {
   updateTray(status);
 }
 
+// Opening the window again (tray, dock, a second start) counts as opening the app: the window fetches
+// the profile at once and shows the plan's warnings.
 function showWindow(): void {
   if (!window) createWindow(true);
+  const wasHidden = window ? !window.isVisible() || window.isMinimized() : false;
   window?.show();
   window?.focus();
+  if (wasHidden) window?.webContents.send('shown');
 }
 
 function updateTray(status: Status): void {
@@ -515,10 +633,13 @@ app.whenReady().then(async () => {
   });
   handle('session', () => {
     const s = store.session();
-    return s ? { subLink: s.subLink, username: s.username } : null;
+    return s ? { id: s.id, subLink: s.subLink, username: s.username } : null;
   });
   handle('login', login);
   handle('logout', logout);
+  handle('accounts', () => store.accounts());
+  handle('switchAccount', switchAccount);
+  handle('removeAccount', removeAccount);
   handle('profile', (force: boolean) => refreshProfile(force));
   handle('refresh', fetchProfile);
   handle('settings', () => store.settings());
@@ -533,19 +654,45 @@ app.whenReady().then(async () => {
   handle('openExternal', async (url: string) => {
     if (/^https?:\/\//.test(url) || url.startsWith('tg://')) await shell.openExternal(url);
   });
+  handle('liveHistory', () => liveHistory);
+  handle('lockSkip', (minutes: number) => guard.skip(Number(minutes) || 15));
+  handle('pickLockApp', pickApp);
   handle('logText', logText);
   handle('sendReport', sendReport);
   handle('saveLog', saveLog);
   ipcMain.on('log', (_event, text: unknown) => log('window', String(text).slice(0, 4000)));
 
+  guard = new Guard({
+    os: system,
+    log,
+    async applySites(sites, address) {
+      if (vpn instanceof RemoteVpn) return vpn.lockSites(sites, address);
+      const ok = applyHostsLock(sites, address);
+      await run('ipconfig.exe', ['/flushdns']);
+      return ok;
+    },
+    onHit: onLockHit,
+  });
+  guard.update(store.settings());
   vpn.on('status', onStatus);
+  vpn.on('live', (sample: LiveSample) => {
+    liveHistory.push(sample);
+    if (liveHistory.length > 120) liveHistory = liveHistory.slice(-120);
+    window?.webContents.send('live', sample);
+  });
   // A failed WireGuard try still reached the server: the panel frees the account's seat at once.
   vpn.on('attemptFailed', (left: { protocol: string; locationId: number | null }) => {
     panelTold = tellPanelLeft(left);
   });
   setInterval(() => bookActivity(), 60_000);
-  setInterval(() => void backgroundRefresh(), profileRefreshMs);
+  // A clock check rather than one long timer, so a computer that slept catches up when it wakes.
+  setInterval(() => {
+    if (refreshDue()) void backgroundRefresh();
+  }, 30_000);
   powerMonitor.on('resume', () => setTimeout(() => void backgroundRefresh(), 15_000));
+  powerMonitor.on('unlock-screen', () => {
+    if (Date.now() - fetchedAt > 60_000) void backgroundRefresh();
+  });
   nativeTheme.on('updated', () => {
     paintWindowFrame();
     tray?.setImage(trayImage());
@@ -568,7 +715,7 @@ app.on('before-quit', (event) => {
   bookActivity();
   void vpn
     .disconnect()
-    .then(() => Promise.race([panelTold, new Promise((r) => setTimeout(r, 5000))]))
+    .then(() => Promise.all([guard.close().catch(() => undefined), Promise.race([panelTold, new Promise((r) => setTimeout(r, 5000))])]))
     .finally(() => app.exit(0));
 });
 
