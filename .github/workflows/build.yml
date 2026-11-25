@@ -405,9 +405,11 @@ jobs:
           version=$(node -p "require('./package.json').version")
           gradle -p android testReleaseUnitTest assembleRelease -PappVersion="$version" --stacktrace
           mkdir -p release
-          for apk in android/app/build/outputs/apk/release/*.apk; do
-            abi=$(basename "$apk" .apk | sed 's/^app-//; s/-release$//')
-            cp "$apk" "release/DT-Connect-$version-android-$abi.apk"
+          # One APK for every device, under the name the download links already use.
+          cp android/app/build/outputs/apk/release/app-release.apk "release/DT-Connect-$version-android-universal.apk"
+          # It must carry the native code of every processor family.
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -l "release/DT-Connect-$version-android-universal.apk" | grep -q "lib/$abi/" || { echo "::error::no lib/$abi in the APK"; exit 1; }
           done
           ls -la release
       # The emulator's data partition needs several GB the builds above have used up.
@@ -442,7 +444,7 @@ jobs:
           disk-size: 2048M
           script: |
             gradle -p android connectedDebugAndroidTest -PappVersion=0.1.0 -Pandroid.testInstrumentationRunnerArguments.ovpnTcp=$(cat /tmp/ovpn-test/tcp.link) -Pandroid.testInstrumentationRunnerArguments.ovpnUdp=$(cat /tmp/ovpn-test/udp.link) -Pandroid.testInstrumentationRunnerArguments.panel=http://10.0.2.2:2096/sub/demo ; s=$? ; adb pull /data/local/tmp/screens android-screens || true ; exit $s
-            adb install -r release/DT-Connect-*-android-x86_64.apk
+            adb install -r release/DT-Connect-*-android-universal.apk
             adb shell am start -W -n team.datacraft.dtclient/.ui.MainActivity
             sleep 6
             adb exec-out screencap -p > android-welcome.png

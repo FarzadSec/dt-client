@@ -1,3 +1,7 @@
+**DT Connect 1.2.1**
+
+- **One Android download for every device.** Android now comes as a single APK (`DT-Connect-<version>-android-universal.apk`) with the code for every processor, so there is nothing to choose: the same file installs on every phone and tablet. The app itself is the same as 1.2.0.
+
 **DT Connect 1.2.0**
 
 - **Sign in with the subscription link alone.** No username to type: the app reads the account from the link. A sign-in QR code or `dtconnect://` link still works.
@@ -63,8 +67,6 @@ Installers for every system are attached below. Check a download against `SHA256
 | Arch, Manjaro, EndeavourOS | `DT-Connect-<version>-linux-x64.pacman` (`aarch64` for ARM) |
 | macOS 12+ on Apple silicon (M1 and later) | `DT-Connect-<version>-mac-arm64.pkg` |
 | macOS 12+ on Intel | `DT-Connect-<version>-mac-x64.pkg` |
-| Android 5.0+, most phones | `DT-Connect-<version>-android-arm64-v8a.apk` |
-| Android, older 32-bit phones | `DT-Connect-<version>-android-armeabi-v7a.apk` |
-| Android, any device | `DT-Connect-<version>-android-universal.apk` |
+| Android 5.0+, every device | `DT-Connect-<version>-android-universal.apk` |
 
 See the README for how to install on each system.

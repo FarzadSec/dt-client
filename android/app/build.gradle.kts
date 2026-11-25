@@ -43,15 +43,8 @@ android {
         }
     }
 
-    // One APK per processor family, and one universal APK that runs on all of them.
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-            isUniversalApk = true
-        }
-    }
+    // A single APK with the native code of every processor family (armeabi-v7a, arm64-v8a, x86,
+    // x86_64), so one download link fits every phone and tablet.
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

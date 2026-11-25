@@ -28,7 +28,7 @@ Runs on Windows 10 and 11 (64-bit), Linux (Debian, Ubuntu and their family, Fedo
 | Arch, Manjaro, EndeavourOS | `DT-Connect-<version>-linux-x64.pacman` (`aarch64` on ARM) | `sudo pacman -U ./DT-Connect-<version>-linux-x64.pacman` |
 | macOS, Apple silicon | `DT-Connect-<version>-mac-arm64.pkg` | Open it. Until the package is notarized macOS refuses the first time: open **System Settings → Privacy & Security** and press **Open Anyway**. It installs for all users of the Mac and asks for the Mac's password, since it sets up the helper. If a copy of 1.1.1 is in your own Applications folder (it could not connect), the installer removes it. |
 | macOS, Intel | `DT-Connect-<version>-mac-x64.pkg` | As above. |
-| Android 5.0+ | `DT-Connect-<version>-android-arm64-v8a.apk` (most phones), `armeabi-v7a` (older phones), `x86_64`/`x86` (emulators, a few tablets), or `universal` (any) | Open the APK and allow installing from that source once. |
+| Android 5.0+ | `DT-Connect-<version>-android-universal.apk` (one file for every phone, tablet and emulator) | Open the APK and allow installing from that source once. |
 
 Each package installs the app and its helper service and removes both when uninstalled (`sudo apt remove dt-connect`, `sudo dnf remove dt-connect`, `sudo pacman -R dt-connect`; on macOS `sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"`). Nothing else is installed or left running. Every release lists the SHA-256 of each file in `SHA256SUMS.txt`.
 

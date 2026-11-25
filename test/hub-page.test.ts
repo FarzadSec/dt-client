@@ -18,10 +18,10 @@ function shotsDir(groups: Record<string, string[]>): string {
   return dir;
 }
 
-// The names the v1.1.0 release actually carried, for a version the page is rendered for.
+// The names a release carries (one Android APK for every device since 1.2.1), for a version the page is rendered for.
 const releaseFiles = (v: string) => [
   `DT-Connect-Setup-${v}.exe`,
-  ...['arm64-v8a', 'armeabi-v7a', 'universal', 'x86', 'x86_64'].map((abi) => `DT-Connect-${v}-android-${abi}.apk`),
+  `DT-Connect-${v}-android-universal.apk`,
   `DT-Connect-${v}-linux-amd64.deb`, `DT-Connect-${v}-linux-arm64.deb`,
   `DT-Connect-${v}-linux-x86_64.rpm`, `DT-Connect-${v}-linux-aarch64.rpm`,
   `DT-Connect-${v}-linux-x64.pacman`, `DT-Connect-${v}-linux-aarch64.pacman`,
