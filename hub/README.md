@@ -18,25 +18,13 @@
 | سیستم | دانلود | برای چه کسی |
 | --- | --- | --- |
 | 🪟 **ویندوز ۱۰ و ۱۱** (۶۴ بیتی) | [**DT-Connect-Setup.exe**]({{base}}/DT-Connect-Setup-{{version}}.exe) | همه‌ی کامپیوترهای ویندوزی |
-| 🤖 **اندروید ۵ به بالا** | [**arm64-v8a**]({{base}}/DT-Connect-{{version}}-android-arm64-v8a.apk) | بیشتر گوشی‌های این چند سال |
-| | [**universal**]({{base}}/DT-Connect-{{version}}-android-universal.apk) | اگر نمی‌دانید کدام را بگیرید (روی همه نصب می‌شود) |
-| | [armeabi-v7a]({{base}}/DT-Connect-{{version}}-android-armeabi-v7a.apk) | گوشی‌های خیلی قدیمی |
+| 🤖 **اندروید ۵ به بالا** | [**DT-Connect.apk**]({{base}}/DT-Connect-{{version}}-android-universal.apk) | همه‌ی گوشی‌ها و تبلت‌های اندرویدی (یک فایل برای همه) |
 | 🍎 **مک** با تراشه‌ی Apple (M1 و جدیدتر) | [**mac-arm64.pkg**]({{base}}/DT-Connect-{{version}}-mac-arm64.pkg) | macOS 12 به بالا |
 | 🍎 **مک** اینتل | [mac-x64.pkg]({{base}}/DT-Connect-{{version}}-mac-x64.pkg) | macOS 12 به بالا |
 | 🐧 **اوبونتو، دبیان، مینت، Pop!_OS** | [amd64.deb]({{base}}/DT-Connect-{{version}}-linux-amd64.deb) · [arm64.deb]({{base}}/DT-Connect-{{version}}-linux-arm64.deb) | |
 | 🐧 **فدورا، RHEL، Rocky، AlmaLinux، openSUSE** | [x86_64.rpm]({{base}}/DT-Connect-{{version}}-linux-x86_64.rpm) · [aarch64.rpm]({{base}}/DT-Connect-{{version}}-linux-aarch64.rpm) | |
 | 🐧 **آرچ، مانجارو، EndeavourOS** | [x64.pacman]({{base}}/DT-Connect-{{version}}-linux-x64.pacman) · [aarch64.pacman]({{base}}/DT-Connect-{{version}}-linux-aarch64.pacman) | |
 | 📱 **آیفون و آیپد** | — | فعلاً نسخه‌ی iOS نداریم: لینک اشتراک را در **Streisand** یا **Happ** وارد کنید. |
-
-<details>
-<summary>فایل‌های دیگر اندروید (شبیه‌ساز و چند تبلت خاص)</summary>
-
-| فایل | برای |
-| --- | --- |
-| [x86_64]({{base}}/DT-Connect-{{version}}-android-x86_64.apk) | شبیه‌سازهای اندروید روی کامپیوتر و چند تبلت با پردازنده‌ی اینتل |
-| [x86]({{base}}/DT-Connect-{{version}}-android-x86.apk) | شبیه‌سازهای قدیمی |
-
-</details>
 
 **مک من کدام است؟** در منوی Apple گزینه‌ی **About This Mac** را بزنید: اگر جلوی Chip نوشته Apple M1 (یا M2، M3 و…)، فایل arm64 را بگیرید؛ اگر جلوی Processor نوشته Intel، فایل x64 را.
 
@@ -129,7 +117,7 @@ DT Connect is DataCraft's VPN app. Sign in with your subscription link alone, or
 | System | Download |
 | --- | --- |
 | Windows 10 / 11 (64-bit) | [DT-Connect-Setup-{{version}}.exe]({{base}}/DT-Connect-Setup-{{version}}.exe) |
-| Android 5.0+ | [arm64-v8a]({{base}}/DT-Connect-{{version}}-android-arm64-v8a.apk) (most phones) · [universal]({{base}}/DT-Connect-{{version}}-android-universal.apk) (any) · [armeabi-v7a]({{base}}/DT-Connect-{{version}}-android-armeabi-v7a.apk) (older phones) |
+| Android 5.0+ | [DT-Connect.apk]({{base}}/DT-Connect-{{version}}-android-universal.apk) (one file for every phone and tablet) |
 | macOS 12+ | [Apple silicon]({{base}}/DT-Connect-{{version}}-mac-arm64.pkg) · [Intel]({{base}}/DT-Connect-{{version}}-mac-x64.pkg) |
 | Debian / Ubuntu | [amd64]({{base}}/DT-Connect-{{version}}-linux-amd64.deb) · [arm64]({{base}}/DT-Connect-{{version}}-linux-arm64.deb) |
 | Fedora / RHEL / openSUSE | [x86_64]({{base}}/DT-Connect-{{version}}-linux-x86_64.rpm) · [aarch64]({{base}}/DT-Connect-{{version}}-linux-aarch64.rpm) |
