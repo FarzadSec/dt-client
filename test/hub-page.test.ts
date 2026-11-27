@@ -26,7 +26,7 @@ const releaseFiles = (v: string) => [
   `DT-Connect-${v}-linux-x86_64.rpm`, `DT-Connect-${v}-linux-aarch64.rpm`,
   `DT-Connect-${v}-linux-x64.pacman`, `DT-Connect-${v}-linux-aarch64.pacman`,
   `DT-Connect-${v}-mac-arm64.pkg`, `DT-Connect-${v}-mac-x64.pkg`,
-  'SHA256SUMS.txt',
+  'SHA256SUMS.txt', 'install-mac.sh',
 ];
 
 describe('download page', () => {
@@ -35,6 +35,14 @@ describe('download page', () => {
     expect(missingDownloads(page, { tag: 'v2.3.4', repo, files: releaseFiles('2.3.4') })).toEqual([]);
     expect(page).not.toMatch(/\{\{|<!-- \/?section/);
     expect(page).toContain(`https://github.com/${repo}/releases/download/v2.3.4/DT-Connect-Setup-2.3.4.exe`);
+  });
+
+  // The Terminal command installs on macOS without Gatekeeper's block; the release must carry its script.
+  it('gives macOS the Terminal command and needs its script in the release', () => {
+    const page = render(template, { tag: 'v2.3.4', repo, screenshotsDir: shotsDir({}) });
+    expect(page).toContain(`curl -fsSL https://github.com/${repo}/releases/latest/download/install-mac.sh | bash`);
+    const files = releaseFiles('2.3.4').filter((f) => f !== 'install-mac.sh');
+    expect(missingDownloads(page, { tag: 'v2.3.4', repo, files })).toEqual(['install-mac.sh']);
   });
 
   it('reports a link to an installer the release lacks', () => {
