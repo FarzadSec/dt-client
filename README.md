@@ -67,7 +67,7 @@ The app fetches the profile every time it is opened (started, or its window brou
 
 A connection counts once the test page comes back through it. While connected the app samples the traffic each second (sing-box's Clash API, OpenVPN's byte counts, `wg.exe`, the PPP link; on Android the app's own bytes) and the test page every 3 s over one kept-alive connection, for the live chart on the home page. When traffic stops passing, Auto moves to another protocol and a chosen protocol shows a warning.
 
-**Leak protection** (on by default): strict routes on sing-box's tunnel, and while OpenVPN or L2TP (IPv4 only) is up, global IPv6 is held back (Windows: a firewall rule for `2000::/3`; Linux: an unreachable route; macOS: IPv6 off on the network services), undone on disconnect and after a crash.
+**Leak protection** (on by default): strict routes on sing-box's tunnel, and while OpenVPN or L2TP (IPv4 only) is up, global IPv6 is held back (Windows: a firewall rule for `2000::/3`; Linux: an unreachable route; macOS: IPv6 off on the network services), undone on disconnect and after a crash. Android blocks IPv6 for the apps while V2Ray or WireGuard is up (no IPv6 address or route on the VPN), unless the WireGuard config has an IPv6 address of its own.
 
 **App and site lock**: locked sites point at this computer in the hosts file while the VPN is off (Windows and macOS also notice the attempt on the local web ports and offer to connect); locked apps found running are closed and opened again after connecting or a skip. On Android the app's own VPN holds locked apps' traffic back, or answers locked sites' names with nowhere.
 

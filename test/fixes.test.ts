@@ -41,6 +41,13 @@ describe('WireGuard outbound', () => {
     expect(ob.settings.domainStrategy).toBe('ForceIP');
   });
 
+  // Xray's own 1420 sent 1480-byte packets that some mobile and relayed paths split and lose half of.
+  it('runs at 1280 when the link names no MTU', () => {
+    const bare = `wireguard://${encodeURIComponent(priv)}@wg.example.com:51820?address=10.66.66.2%2F32&publickey=${encodeURIComponent(pub)}`;
+    const ob = wireguardOutbound(bare) as { settings: { mtu: number } };
+    expect(ob.settings.mtu).toBe(1280);
+  });
+
   it('repairs the panel outbound when the link has no usable key', () => {
     const ob = proxyOutboundFor({ protocol: 'wireguard', link: 'wireguard://@wg.example.com:51820', outbound: panelOutbound }) as { settings: { secretKey: string } };
     expect(ob.settings.secretKey).toBe(priv);

@@ -35,6 +35,32 @@ class XrayConfigTest {
         assertEquals(listOf("wg.example.com"), XrayConfig.serverNames(ob))
     }
 
+    // A link without mtu ran at Xray's 1420: packets of 1480 bytes that some mobile networks lose half of.
+    @Test
+    fun wireGuardWithoutAnMtuRunsAt1280() {
+        val bare = "wireguard://${e(priv)}@wg.example.com:51820?address=10.66.66.2%2F32&publickey=${e(pub)}"
+        assertEquals(1280, XrayConfig.proxyOutboundFor("wireguard", bare, null)!!.getJSONObject("settings").getInt("mtu"))
+    }
+
+    // IPv6 is routed into the VPN only when the tunnel has an IPv6 address; otherwise Android blocks it.
+    @Test
+    fun onlyAWireGuardTunnelWithAnIpv6AddressCarriesIpv6() {
+        val v4 = XrayConfig.proxyOutboundFor("wireguard", link, null)!!
+        val v6 = XrayConfig.wireguardOutbound("wireguard://${e(priv)}@wg.example.com:51820?address=10.66.66.2%2F32,fd00::2%2F128&publickey=${e(pub)}", null)!!
+        val vless = JSONObject("""{"protocol":"vless","settings":{"address":"de.example.com","port":443,"id":"u"}}""")
+        assertFalse(XrayConfig.carriesIpv6(v4))
+        assertTrue(XrayConfig.carriesIpv6(v6))
+        assertFalse(XrayConfig.carriesIpv6(vless))
+    }
+
+    // The VPN interface delivers addresses; IPIfNonMatch made Xray look every sniffed name up again first.
+    @Test
+    fun routingMatchesTheAddressTheDeviceResolved() {
+        val vless = JSONObject("""{"protocol":"vless","settings":{"address":"203.0.113.7","port":443,"id":"u"},"streamSettings":{"security":"tls"}}""")
+        val cfg = JSONObject(XrayConfig.build(vless, 1080, iranDirect = true, adBlock = true, dns = listOf("1.1.1.1")))
+        assertEquals("AsIs", cfg.getJSONObject("routing").getString("domainStrategy"))
+    }
+
     @Test
     fun repairsThePanelOutboundWhenTheLinkHasNoKey() {
         val ob = XrayConfig.proxyOutboundFor("wireguard", "wireguard://@wg.example.com:51820", panel)!!

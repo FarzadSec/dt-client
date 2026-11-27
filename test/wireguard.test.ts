@@ -50,10 +50,11 @@ describe('the WireGuard tunnel config', () => {
     );
   });
 
-  it('leaves the MTU to the tunnel service when the link has none, and gives a bare address its prefix', () => {
+  // The system's own MTU less 80 (1420 on most) lost half of every split packet on some paths.
+  it('sets MTU 1280 when the link has none, and gives a bare address its prefix', () => {
     const bare = `wireguard://${e(priv)}@wg.example.com:51820?address=10.0.0.7&publickey=${e(pub)}`;
     const conf = wireguardConf(outbound(bare), { dns: ['1.1.1.1'], killSwitch: true }) as string;
-    expect(conf).not.toContain('MTU');
+    expect(conf).toContain('MTU = 1280');
     expect(conf).not.toContain('PresharedKey');
     expect(conf).toContain('Address = 10.0.0.7/32');
     expect(conf).toContain('Endpoint = wg.example.com:51820');

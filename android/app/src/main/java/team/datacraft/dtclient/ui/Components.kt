@@ -32,7 +32,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +58,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import team.datacraft.dtclient.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 // The building blocks every page shares: cards, buttons, rows and flags.
 
@@ -150,8 +153,12 @@ fun IconTile(icon: Int, modifier: Modifier = Modifier, size: Dp = 40.dp, tint: C
 // on every phone and never sat right in the circle.
 private val flagCache = HashMap<String, ImageBitmap?>()
 
+private fun flagKey(code: String) = code.lowercase().let { if (it == "uk") "gb" else it }
+
+fun cachedFlag(code: String): ImageBitmap? = synchronized(flagCache) { flagCache[flagKey(code)] }
+
 fun flagBitmap(context: Context, code: String): ImageBitmap? {
-    val key = code.lowercase().let { if (it == "uk") "gb" else it }
+    val key = flagKey(code)
     if (key.length != 2) return null
     return synchronized(flagCache) {
         flagCache.getOrPut(key) {
@@ -165,12 +172,14 @@ fun flagBitmap(context: Context, code: String): ImageBitmap? {
 fun FlagCircle(code: String, size: Dp = 36.dp) {
     val c = LocalDt.current
     val context = LocalContext.current
-    val bitmap = remember(code) { flagBitmap(context, code) }
+    // Decoded off the main thread: the first scroll through the location list decoded each flag in the frame.
+    val bitmap by produceState(cachedFlag(code), code) { value = withContext(Dispatchers.IO) { flagBitmap(context, code) } }
+    val flag = bitmap
     Box(Modifier.size(size).clip(CircleShape).background(c.cardHigh), contentAlignment = Alignment.Center) {
-        if (bitmap == null) {
+        if (flag == null) {
             Icon(painterResource(R.drawable.ic_globe), null, tint = c.muted, modifier = Modifier.size(size * 0.55f))
         } else {
-            Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image(flag, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
     }
 }

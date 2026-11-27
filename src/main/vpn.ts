@@ -12,7 +12,7 @@ import { singboxTunConfig } from './configs/singbox';
 import { dnsServers, proxyOutboundFor, serverNames, systemResolvers, xrayConfig } from './configs/xray';
 import { EngineProcess, waitForLine } from './engines/process';
 import { freePort, probeThroughProxy, waitForPort } from './health';
-import { HttpProbe } from './httpProbe';
+import { HttpProbe, googleTest, type TunnelRoute } from './httpProbe';
 import { LiveMonitor, type Counters } from './live';
 import type { LogFn } from './log';
 import type { L2tpDriver, SystemKit } from './os/kit';
@@ -469,7 +469,7 @@ export class Vpn extends EventEmitter {
         ok = await connection.start();
         // Up is not enough: the test page has to come back through the tunnel, or nothing would.
         if (ok && !connection.verified && attempt === this.attempt) {
-          ok = await (this.options.checkTraffic ?? (() => this.passesTraffic()))();
+          ok = await (this.options.checkTraffic ?? (() => this.passesTraffic(this.tunnelRoute(connection, settings))))();
           if (!ok) {
             silent++;
             this.log('vpn', 'the tunnel is up but the test page did not come back through it; trying the next');
@@ -523,8 +523,14 @@ export class Vpn extends EventEmitter {
   }
 
   // Google's empty page through the system's routes, a few tries while routes and DNS settle.
-  private async passesTraffic(): Promise<boolean> {
-    const probe = new HttpProbe();
+  // OpenVPN's test page goes out from the address the server gave, through the tunnel's own lookups.
+  private tunnelRoute(connection: Connection, settings: Settings): TunnelRoute | null {
+    if (connection.engine !== 'openvpn' || !connection.address || !net.isIPv4(connection.address)) return null;
+    return { localAddress: connection.address, resolvers: systemResolvers(settings.dns) };
+  }
+
+  private async passesTraffic(route: TunnelRoute | null): Promise<boolean> {
+    const probe = new HttpProbe(googleTest, null, false, route);
     try {
       for (let i = 0; i < 3; i++) {
         const r = await probe.measure(6000);
@@ -545,7 +551,9 @@ export class Vpn extends EventEmitter {
   private watch(connection: Connection, attempt: number): void {
     this.monitor?.stop();
     if (this.options.live === false) return;
+    const route = this.asked ? this.tunnelRoute(connection, this.asked.settings) : null;
     const monitor = new LiveMonitor({
+      probe: new HttpProbe(googleTest, null, false, route),
       counters: () => connection.counters?.() ?? Promise.resolve(null),
       onSample: (sample: LiveSample) => this.emit('live', sample),
       onStall: () => {

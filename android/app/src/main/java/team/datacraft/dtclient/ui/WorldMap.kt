@@ -10,6 +10,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,10 +19,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.PathParser
@@ -99,6 +102,17 @@ enum class DotKind { Server, Selected, Connected }
 
 data class MapDot(val key: String, val at: Offset, val kind: DotKind)
 
+private class MapFrame(val tx: Float, val ty: Float, val w: Float, val h: Float)
+
+private fun mapFrame(width: Float, height: Float, zoom: Float, anchorX: Float, anchorY: Float, fx: Float, fy: Float): MapFrame {
+    val w = width * zoom
+    val h = w * Geo.ratio
+    val tx = (width * anchorX - fx * w).coerceIn(width - w, 0f)
+    val lowY = minOf(0f, height - h)
+    val ty = (height * anchorY - fy * h).coerceIn(lowY, maxOf(lowY, 0f))
+    return MapFrame(tx, ty, w, h)
+}
+
 // focus is held at (anchorX, anchorY) of the frame and glides there when it changes; the map never shows its edge.
 @Composable
 fun WorldMap(focus: Offset, dots: List<MapDot>, modifier: Modifier = Modifier, zoom: Float = 2.6f, anchorX: Float = 0.5f, anchorY: Float = 0.36f) {
@@ -116,39 +130,42 @@ fun WorldMap(focus: Offset, dots: List<MapDot>, modifier: Modifier = Modifier, z
     } else {
         null
     }
-    Canvas(modifier) {
-        val w = size.width * zoom
-        val h = w * Geo.ratio
-        val tx = (size.width * anchorX - fx * w).coerceIn(size.width - w, 0f)
-        val lowY = minOf(0f, size.height - h)
-        val ty = (size.height * anchorY - fy * h).coerceIn(lowY, maxOf(lowY, 0f))
-        val s = w / Geo.WIDTH
-        land?.let { path ->
-            withTransform({
-                translate(tx, ty)
-                scale(s, s, pivot = Offset.Zero)
-            }) {
-                drawPath(path, c.land)
-                drawPath(path, c.sea.copy(alpha = 0.55f), style = Stroke(width = 0.5f))
+    Box(modifier) {
+        // The countries are a layer of their own, kept as a texture: the pulse redraws only the dots,
+        // where it used to fill and stroke the whole world's outline on every frame.
+        Canvas(Modifier.matchParentSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+            val f = mapFrame(size.width, size.height, zoom, anchorX, anchorY, fx, fy)
+            val s = f.w / Geo.WIDTH
+            land?.let { path ->
+                withTransform({
+                    translate(f.tx, f.ty)
+                    scale(s, s, pivot = Offset.Zero)
+                }) {
+                    drawPath(path, c.land)
+                    drawPath(path, c.sea.copy(alpha = 0.55f), style = Stroke(width = 0.5f))
+                }
             }
         }
-        for (d in dots) {
-            val p = Offset(tx + d.at.x * w, ty + d.at.y * h)
-            when (d.kind) {
-                DotKind.Server -> {
-                    drawCircle(c.accent.copy(alpha = 0.18f), radius = 9.dp.toPx(), center = p)
-                    drawCircle(c.accent.copy(alpha = 0.9f), radius = 4.dp.toPx(), center = p)
-                }
-                DotKind.Selected -> {
-                    drawCircle(c.accent.copy(alpha = 0.22f), radius = 14.dp.toPx(), center = p)
-                    drawCircle(c.accent, radius = 6.dp.toPx(), center = p)
-                    drawCircle(c.sea, radius = 2.5.dp.toPx(), center = p)
-                }
-                DotKind.Connected -> {
-                    val pulse = pulsing?.value ?: 0f
-                    drawCircle(c.secured.copy(alpha = 0.45f * (1 - pulse)), radius = (8 + 26 * pulse).dp.toPx(), center = p)
-                    drawCircle(c.secured.copy(alpha = 0.25f), radius = 12.dp.toPx(), center = p)
-                    drawCircle(c.secured, radius = 6.dp.toPx(), center = p)
+        Canvas(Modifier.matchParentSize()) {
+            val f = mapFrame(size.width, size.height, zoom, anchorX, anchorY, fx, fy)
+            for (d in dots) {
+                val p = Offset(f.tx + d.at.x * f.w, f.ty + d.at.y * f.h)
+                when (d.kind) {
+                    DotKind.Server -> {
+                        drawCircle(c.accent.copy(alpha = 0.18f), radius = 9.dp.toPx(), center = p)
+                        drawCircle(c.accent.copy(alpha = 0.9f), radius = 4.dp.toPx(), center = p)
+                    }
+                    DotKind.Selected -> {
+                        drawCircle(c.accent.copy(alpha = 0.22f), radius = 14.dp.toPx(), center = p)
+                        drawCircle(c.accent, radius = 6.dp.toPx(), center = p)
+                        drawCircle(c.sea, radius = 2.5.dp.toPx(), center = p)
+                    }
+                    DotKind.Connected -> {
+                        val pulse = pulsing?.value ?: 0f
+                        drawCircle(c.secured.copy(alpha = 0.45f * (1 - pulse)), radius = (8 + 26 * pulse).dp.toPx(), center = p)
+                        drawCircle(c.secured.copy(alpha = 0.25f), radius = 12.dp.toPx(), center = p)
+                        drawCircle(c.secured, radius = 6.dp.toPx(), center = p)
+                    }
                 }
             }
         }

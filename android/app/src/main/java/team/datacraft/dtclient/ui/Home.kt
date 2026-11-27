@@ -47,7 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -128,7 +128,6 @@ private fun RefreshButton() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
-    val angle by rememberInfiniteTransition(label = "refresh").animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "refresh")
     Box(
         Modifier.size(46.dp).clip(CircleShape).border(1.dp, c.line, CircleShape).clickable(enabled = !refreshing) {
             refreshing = true
@@ -140,8 +139,15 @@ private fun RefreshButton() {
         }.semantics { contentDescription = t("refreshSub") },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(painterResource(R.drawable.ic_refresh), null, tint = c.text, modifier = Modifier.size(20.dp).rotate(if (refreshing) angle else 0f))
+        if (refreshing) SpinningRefreshIcon() else Icon(painterResource(R.drawable.ic_refresh), null, tint = c.text, modifier = Modifier.size(20.dp))
     }
+}
+
+// An infinite transition asks for a frame on every vsync while it exists, so it lives only while spinning.
+@Composable
+private fun SpinningRefreshIcon() {
+    val angle by rememberInfiniteTransition(label = "refresh").animateFloat(0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "refresh")
+    Icon(painterResource(R.drawable.ic_refresh), null, tint = LocalDt.current.text, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle })
 }
 
 @Composable
@@ -166,6 +172,26 @@ fun Banners(notices: List<NoticeEntry>, onClose: (String) -> Unit) {
     }
 }
 
+// The per-second state lives in these two, so the map card around them is not recomposed every second.
+@Composable
+private fun LiveChartOfConnection(modifier: Modifier) {
+    val samples by VpnState.live.collectAsState()
+    LiveChart(samples, modifier)
+}
+
+@Composable
+private fun ConnectedClock(since: Long, protocol: String) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(since) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+    val detail = listOf(clock(now - since), protocolName(protocol)).filter { it.isNotEmpty() }.joinToString(" · ")
+    Text(iso(detail), color = LocalDt.current.muted, fontSize = 12.sp, maxLines = 1)
+}
+
 @Composable
 private fun MapCard(p: Profile, status: Status, settings: Settings, activity: MainActivity, onExpand: () -> Unit) {
     val c = LocalDt.current
@@ -178,20 +204,14 @@ private fun MapCard(p: Profile, status: Status, settings: Settings, activity: Ma
     val live = (status.serverId ?: status.locationId)?.let { id -> p.locations.firstOrNull { it.id == id } }
     val shown = if (status.state != ConnState.Disconnected) live ?: target else target
     val usable = remember(p) { Candidates.usableLocationIds(p) }
-    val focus = shown?.let { Geo.point(context, it.countryCode) } ?: Geo.point(context, "IR") ?: Offset(0.66f, 0.38f)
-    val dots = p.locations.filter { it.id in usable }.mapNotNull { l ->
-        Geo.point(context, l.countryCode)?.let { at ->
-            MapDot("${l.id}", at, if (connected && l.id == live?.id) DotKind.Connected else if (l.id == shown?.id) DotKind.Selected else DotKind.Server)
-        }
-    }.sortedBy { it.kind.ordinal }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(connected) {
-        while (connected) {
-            now = System.currentTimeMillis()
-            delay(1000)
-        }
+    val focus = remember(shown?.countryCode) { shown?.let { Geo.point(context, it.countryCode) } ?: Geo.point(context, "IR") ?: Offset(0.66f, 0.38f) }
+    val dots = remember(p, usable, connected, live?.id, shown?.id) {
+        p.locations.filter { it.id in usable }.mapNotNull { l ->
+            Geo.point(context, l.countryCode)?.let { at ->
+                MapDot("${l.id}", at, if (connected && l.id == live?.id) DotKind.Connected else if (l.id == shown?.id) DotKind.Selected else DotKind.Server)
+            }
+        }.sortedBy { it.kind.ordinal }
     }
-    val samples by VpnState.live.collectAsState()
     val badge by animateColorAsState(if (connected) c.securedBadge else if (busy) c.cardHigh else c.unsecuredBadge, label = "badge")
     val ink by animateColorAsState(if (connected) c.secured else if (busy) Palette.warn else c.unsecured, label = "ink")
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(c.sea)) {
@@ -199,7 +219,7 @@ private fun MapCard(p: Profile, status: Status, settings: Settings, activity: Ma
         Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, c.sea.copy(alpha = 0.78f), c.sea.copy(alpha = 0.96f)), startY = 80f)))
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.Top) {
-                if (connected) LiveChart(samples, Modifier.weight(1f)) else Spacer(Modifier.weight(1f).height(if (connected) 0.dp else 70.dp))
+                if (connected) LiveChartOfConnection(Modifier.weight(1f)) else Spacer(Modifier.weight(1f).height(70.dp))
                 Spacer(Modifier.width(8.dp))
                 CircleIconButton(R.drawable.ic_expand, t("allLocations"), size = 38.dp, background = c.background.copy(alpha = 0.7f), onClick = onExpand)
             }
@@ -218,12 +238,10 @@ private fun MapCard(p: Profile, status: Status, settings: Settings, activity: Ma
                         else -> t("notSecured")
                     }
                     Text(title, color = ink, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    val detail = when {
-                        connected && status.since > 0 -> listOf(clock(now - status.since), protocolName(status.protocol)).filter { it.isNotEmpty() }.joinToString(" · ")
-                        busy -> protocolName(status.protocol)
-                        else -> ""
+                    when {
+                        connected && status.since > 0 -> ConnectedClock(status.since, status.protocol)
+                        busy && protocolName(status.protocol).isNotEmpty() -> Text(iso(protocolName(status.protocol)), color = c.muted, fontSize = 12.sp, maxLines = 1)
                     }
-                    if (detail.isNotEmpty()) Text(iso(detail), color = c.muted, fontSize = 12.sp, maxLines = 1)
                 }
             }
             Spacer(Modifier.height(10.dp))

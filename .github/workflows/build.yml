@@ -288,6 +288,21 @@ jobs:
           if [ -e "$HOME/Applications/DT Connect.app" ]; then echo "home-folder copy still there"; rm -rf "$HOME/Applications/DT Connect.app"; else echo "home-folder copy removed by postinstall"; fi
           sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"
           test ! -e "/Applications/DT Connect.app"
+      # The page's Terminal command: the same script, served the packages this run built, as the latest release.
+      - name: Install with the Terminal installer (no quarantine, no Gatekeeper block)
+        run: |
+          mkdir -p /tmp/latest
+          for f in release/DT-Connect-*-mac-*.pkg; do cp "$f" "/tmp/latest/$(basename "$f" | sed -E 's/-[0-9]+\.[0-9]+\.[0-9]+-mac-/-mac-/')"; done
+          (cd /tmp/latest && shasum -a 256 * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/latest >/dev/null 2>&1 &
+          sleep 2
+          DT_CONNECT_BASE=http://127.0.0.1:8765 DT_CONNECT_NO_OPEN=1 bash build/mac/install-mac.sh
+          codesign --verify --deep --strict "/Applications/DT Connect.app"
+          test -z "$(xattr -p com.apple.quarantine "/Applications/DT Connect.app" 2>/dev/null || true)"
+          sleep 3
+          node scripts/helper-hello.mjs /var/run/dt-connect.sock
+          sudo "/Applications/DT Connect.app/Contents/Resources/uninstall.sh"
+          test ! -e "/Applications/DT Connect.app"
       - name: Installer and helper logs
         if: failure()
         run: |
@@ -508,6 +523,8 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           cd out
+          # The download page's Terminal command for macOS (installs without Gatekeeper's block).
+          cp ../build/mac/install-mac.sh .
           # Every installer also under its name without the version (DT-Connect-Setup.exe,
           # DT-Connect-android-universal.apk, ...), so .../releases/latest/download/<name> is a direct
           # link that always gives the newest version.

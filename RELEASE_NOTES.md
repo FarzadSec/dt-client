@@ -1,3 +1,11 @@
+**DT Connect 1.2.2**
+
+- **Android: sites that would not open now do.** The VPN took IPv6 connections it could not carry (the servers have no IPv6), so sites and apps that tried IPv6 first hung. While V2Ray or WireGuard is connected, Android now blocks IPv6 for the apps, so they use IPv4 at once and nothing leaves around the tunnel; only a WireGuard config with an IPv6 address of its own carries IPv6. Each new site also no longer waits for an extra name lookup through the tunnel first.
+- **WireGuard runs at MTU 1280 when its config names none**, as the official WireGuard app does. Its packets of 1480 bytes were split on some mobile and relayed networks and the second half lost, which stalled large pages, uploads and calls. On every system.
+- **OpenVPN: the check that traffic passes no longer fails working connections.** It went out by the system's routes and DNS, which on Windows settle a few seconds after OpenVPN is up; it now goes through the tunnel itself, from the address the server gave, with the DNS setting's resolvers. The live ping uses the same path.
+- **Android: a smoother app.** The map no longer fills and outlines the whole world on every frame of the connected pulse, the refresh button no longer animates in the background, the home page no longer rebuilds itself every second while connected, and flags load off the main thread.
+- **macOS: install without the "Apple could not verify" block.** The download page has a one-line Terminal command that downloads the right package for the Mac, checks it against SHA256SUMS.txt and installs it. A package downloaded in a browser still opens through **Privacy & Security → Open Anyway**.
+
 **DT Connect 1.2.1**
 
 - **One Android download for every device.** Android now comes as a single APK (`DT-Connect-<version>-android-universal.apk`) with the code for every processor, so there is nothing to choose: the same file installs on every phone and tablet. The app itself is the same as 1.2.0.

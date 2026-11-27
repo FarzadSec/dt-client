@@ -1,3 +1,4 @@
+import dns from 'node:dns';
 import net from 'node:net';
 import tls from 'node:tls';
 
@@ -106,6 +107,29 @@ function socksConnect(port: number, target: ProbeTarget, timeoutMs: number): Pro
   });
 }
 
+// A probe pinned to a tunnel: its name looked up and its connection made from the tunnel's own address.
+// The system's routes and resolvers settle a while after OpenVPN comes up (Windows above all), and a
+// probe through them failed connections that carried traffic fine.
+export interface TunnelRoute {
+  localAddress: string;
+  resolvers: string[];
+}
+
+export async function resolveThrough(route: TunnelRoute, name: string, timeoutMs: number): Promise<string | null> {
+  if (net.isIP(name)) return name;
+  const resolver = new dns.promises.Resolver({ timeout: Math.max(500, Math.min(3000, timeoutMs)), tries: 2 });
+  try {
+    resolver.setLocalAddress(route.localAddress);
+    resolver.setServers(route.resolvers.filter((r) => net.isIPv4(r)));
+    const answer = await Promise.race([resolver.resolve4(name), new Promise<string[]>((resolve) => setTimeout(() => resolve([]), timeoutMs))]);
+    return answer[0] ?? null;
+  } catch {
+    return null;
+  } finally {
+    resolver.cancel();
+  }
+}
+
 export interface ProbeResult {
   ok: boolean;
   // The warm request's time, or the cold one's when the warm one failed.
@@ -125,6 +149,7 @@ export class HttpProbe {
     private readonly socksPort: number | null = null,
     // Tests only: a local test server's certificate is its own.
     private readonly insecure = false,
+    private readonly route: TunnelRoute | null = null,
   ) {}
 
   private async open(timeoutMs: number): Promise<boolean> {
@@ -133,6 +158,8 @@ export class HttpProbe {
     let raw: net.Socket | null;
     if (this.socksPort !== null) raw = await socksConnect(this.socksPort, this.target, timeoutMs);
     else raw = null;
+    const address = this.route && !raw ? await resolveThrough(this.route, this.target.host, timeoutMs) : this.target.host;
+    if (!address) return false;
     const left = Math.max(500, timeoutMs - (Date.now() - started));
     return new Promise((resolve) => {
       let settled = false;
@@ -144,7 +171,8 @@ export class HttpProbe {
         resolve(ok);
       };
       const timer = setTimeout(() => finish(false), left);
-      const options: tls.ConnectionOptions = raw ? { socket: raw, servername: this.target.host } : { host: this.target.host, port: this.target.port, servername: this.target.host };
+      const local = this.route && !raw ? { localAddress: this.route.localAddress } : {};
+      const options: tls.ConnectionOptions = raw ? { socket: raw, servername: this.target.host } : { host: address, port: this.target.port, servername: this.target.host, ...local };
       if (this.socksPort !== null && !raw) return finish(false);
       const secure = tls.connect({ ...options, ALPNProtocols: ['http/1.1'], ...(this.insecure ? { rejectUnauthorized: false } : {}) });
       const reader = new ResponseReader();

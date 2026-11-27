@@ -36,11 +36,20 @@
 
 **اندروید:** فایل APK را باز کنید و اجازه‌ی نصب از این منبع را یک بار بدهید. اگر Play Protect هشدار داد، اول **More details** و بعد **Install anyway** را بزنید.
 
-**مک:** فایل pkg را باز کنید. بار اول macOS جلوی آن را می‌گیرد: در **System Settings** بخش **Privacy & Security** را باز کنید و دکمه‌ی **Open Anyway** را بزنید. برای پروتکل OpenVPN روی مک، OpenVPN را با Homebrew نصب کنید.
+**مک (راه پیشنهادی، بدون هشدار):** برنامه‌ی **Terminal** را باز کنید (با Spotlight: کلید Command و Space، بعد بنویسید Terminal). دستور مک را از کادر پایین کپی کنید، در Terminal بچسبانید و Enter بزنید. رمز مک را می‌پرسد (هنگام تایپ چیزی نشان داده نمی‌شود) و نسخه‌ی درست مک شما را دانلود، بررسی و نصب می‌کند.
+
+**مک (با فایل pkg):** اگر فایل را با مرورگر دانلود کردید و macOS پیام **Apple could not verify** داد، روی **Done** بزنید. بعد **System Settings** و بخش **Privacy & Security** را باز کنید، پایین صفحه دکمه‌ی **Open Anyway** را بزنید و رمز مک را وارد کنید. حالا فایل pkg را دوباره باز کنید.
+
+برای پروتکل OpenVPN روی مک، OpenVPN را با Homebrew نصب کنید.
 
 **لینوکس:** در ترمینال، در پوشه‌ای که فایل را دانلود کرده‌اید:
 
 </div>
+
+```bash
+# macOS (Terminal): installs the newest DT Connect without Gatekeeper's block
+curl -fsSL https://github.com/{{repo}}/releases/latest/download/install-mac.sh | bash
+```
 
 ```bash
 # Ubuntu / Debian / Mint
@@ -118,7 +127,7 @@ DT Connect is DataCraft's VPN app. Sign in with your subscription link alone, or
 | --- | --- |
 | Windows 10 / 11 (64-bit) | [DT-Connect-Setup-{{version}}.exe]({{base}}/DT-Connect-Setup-{{version}}.exe) |
 | Android 5.0+ | [DT-Connect.apk]({{base}}/DT-Connect-{{version}}-android-universal.apk) (one file for every phone and tablet) |
-| macOS 12+ | [Apple silicon]({{base}}/DT-Connect-{{version}}-mac-arm64.pkg) · [Intel]({{base}}/DT-Connect-{{version}}-mac-x64.pkg) |
+| macOS 12+ | [Apple silicon]({{base}}/DT-Connect-{{version}}-mac-arm64.pkg) · [Intel]({{base}}/DT-Connect-{{version}}-mac-x64.pkg) · or in Terminal, without Gatekeeper's block: `curl -fsSL https://github.com/{{repo}}/releases/latest/download/install-mac.sh \| bash` ([script]({{base}}/install-mac.sh)) |
 | Debian / Ubuntu | [amd64]({{base}}/DT-Connect-{{version}}-linux-amd64.deb) · [arm64]({{base}}/DT-Connect-{{version}}-linux-arm64.deb) |
 | Fedora / RHEL / openSUSE | [x86_64]({{base}}/DT-Connect-{{version}}-linux-x86_64.rpm) · [aarch64]({{base}}/DT-Connect-{{version}}-linux-aarch64.rpm) |
 | Arch / Manjaro | [x64]({{base}}/DT-Connect-{{version}}-linux-x64.pacman) · [aarch64]({{base}}/DT-Connect-{{version}}-linux-aarch64.pacman) |
