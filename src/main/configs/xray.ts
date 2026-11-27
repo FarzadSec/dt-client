@@ -86,6 +86,10 @@ function query(link: string): Map<string, string> {
   return out;
 }
 
+// What the official WireGuard app uses when a config names no MTU. Xray's own 1420 sent packets of 1480
+// bytes, which some mobile and relayed paths split and then lose the second half of.
+export const defaultWireguardMtu = 1280;
+
 const list = (s: string | undefined) => (s ?? '').split(',').map((x) => x.trim()).filter(Boolean);
 // A 32-byte key in standard base64.
 const wgKey = /^[A-Za-z0-9+/]{43}=$/;
@@ -127,7 +131,7 @@ export function wireguardOutbound(link: string, fallback?: Obj): Obj | null {
   const has6 = address.some((a) => a.includes(':'));
   const settings: Obj = { secretKey, address, peers: [peer], noKernelTun: true, domainStrategy: has6 ? 'ForceIP' : 'ForceIPv4' };
   const mtu = Number(q.get('mtu') ?? fb.mtu);
-  if (Number.isInteger(mtu) && mtu >= 576 && mtu <= 9000) settings.mtu = mtu;
+  settings.mtu = Number.isInteger(mtu) && mtu >= 576 && mtu <= 9000 ? mtu : defaultWireguardMtu;
   const reserved = list(q.get('reserved')).map(Number);
   if (reserved.length > 0 && reserved.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) settings.reserved = reserved;
   else if (Array.isArray(fb.reserved)) settings.reserved = fb.reserved;

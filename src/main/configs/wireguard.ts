@@ -60,7 +60,8 @@ export function wireguardConf(outbound: Obj, opts: WireguardConfOptions): string
 
   const lines = ['[Interface]', `PrivateKey = ${s.secretKey}`, `Address = ${addresses.join(', ')}`];
   if (dns.length > 0) lines.push(`DNS = ${dns.join(', ')}`);
-  // Without an MTU line the tunnel service sets one from the system's own connection, as the official app does.
+  // wireguardOutbound always sets one (the link's, or 1280); a panel outbound without one leaves the choice
+  // to the tunnel service, which takes it from the system's own connection.
   if (typeof s.mtu === 'number' && Number.isInteger(s.mtu) && s.mtu >= 576 && s.mtu <= 9000) lines.push(`MTU = ${s.mtu}`);
   lines.push('', '[Peer]', `PublicKey = ${peer.publicKey}`);
   if (typeof peer.preSharedKey === 'string' && peer.preSharedKey !== '') lines.push(`PresharedKey = ${peer.preSharedKey}`);
