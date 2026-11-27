@@ -1,3 +1,7 @@
+**DT Connect 1.2.3**
+
+- **OpenVPN connects as soon as OpenVPN says it is connected.** The extra check that a test page comes back through the tunnel is gone for OpenVPN: on Windows it kept failing connections that worked. While connected, OpenVPN counts as stalled only when nothing at all comes in for 40 seconds (its server pings every 10), not when the test page is slow; the live ping still shows the test page.
+
 **DT Connect 1.2.2**
 
 - **Android: sites that would not open now do.** The VPN took IPv6 connections it could not carry (the servers have no IPv6), so sites and apps that tried IPv6 first hung. While V2Ray or WireGuard is connected, Android now blocks IPv6 for the apps, so they use IPv4 at once and nothing leaves around the tunnel; only a WireGuard config with an IPv6 address of its own carries IPv6. Each new site also no longer waits for an extra name lookup through the tunnel first.
