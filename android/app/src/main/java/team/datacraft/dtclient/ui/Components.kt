@@ -174,11 +174,12 @@ fun FlagCircle(code: String, size: Dp = 36.dp) {
     val context = LocalContext.current
     // Decoded off the main thread: the first scroll through the location list decoded each flag in the frame.
     val bitmap by produceState(cachedFlag(code), code) { value = withContext(Dispatchers.IO) { flagBitmap(context, code) } }
+    val flag = bitmap
     Box(Modifier.size(size).clip(CircleShape).background(c.cardHigh), contentAlignment = Alignment.Center) {
-        if (bitmap == null) {
+        if (flag == null) {
             Icon(painterResource(R.drawable.ic_globe), null, tint = c.muted, modifier = Modifier.size(size * 0.55f))
         } else {
-            Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image(flag, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
     }
 }
