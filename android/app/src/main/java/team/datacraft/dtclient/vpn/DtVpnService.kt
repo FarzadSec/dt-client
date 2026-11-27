@@ -418,7 +418,7 @@ class DtVpnService : VpnService() {
         // Run again with the short log before the user's traffic goes through it.
         if (!run("warning")) return Attempt.Failed
         drainXrayLog()
-        val fd = establish(dns.first(), settings.splitApps)
+        val fd = establish(dns, settings.splitApps, XrayConfig.carriesIpv6(outbound))
         if (fd == null) {
             AppLog.w(TAG, "Android did not give the VPN interface (permission revoked or another VPN is always-on)")
             runCatching { Core.stop() }
@@ -521,15 +521,16 @@ class DtVpnService : VpnService() {
         return runCatching { builder.establish() }.getOrNull()
     }
 
-    private fun establish(dns: String, splitApps: Set<String>): ParcelFileDescriptor? {
+    private fun establish(dns: List<String>, splitApps: Set<String>, ipv6: Boolean): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession("DT Connect")
             .setMtu(MTU)
             .addAddress("172.19.0.1", 30)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer(dns)
-        // IPv6 goes into the tunnel too, so nothing leaves around it.
-        runCatching { builder.addAddress("fdfe:dcba:9876::1", 126).addRoute("::", 0) }
+        // With no IPv6 address, route or DNS server Android blocks IPv6, so apps fall back to IPv4 at once:
+        // the tunnel accepted IPv6 connections it could not carry, and sites that tried IPv6 first hung.
+        if (ipv6) runCatching { builder.addAddress("fdfe:dcba:9876::1", 126).addRoute("::", 0) }
+        for (server in dns.filter { ipv6 || !it.contains(':') }.ifEmpty { XrayConfig.defaultDns }) runCatching { builder.addDnsServer(server) }
         runCatching { builder.addDisallowedApplication(packageName) }
         for (app in splitApps) runCatching { builder.addDisallowedApplication(app) }
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)

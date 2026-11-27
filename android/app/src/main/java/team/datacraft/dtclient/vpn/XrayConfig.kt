@@ -9,6 +9,9 @@ import org.json.JSONObject
 object XrayConfig {
     val defaultDns = listOf("1.1.1.1", "8.8.8.8")
     const val CARRIER_ADDRESS = "10.255.255.254"
+    // What the official WireGuard app uses when a config names no MTU: 1420 sent whole packets of 1480
+    // bytes, which some mobile networks split and then lose the second half of.
+    const val DEFAULT_WG_MTU = 1280
     private val wgKey = Regex("^[A-Za-z0-9+/]{43}=$")
 
     fun dnsServers(setting: String): List<String> {
@@ -94,11 +97,18 @@ object XrayConfig {
             .put("noKernelTun", true)
             .put("domainStrategy", if (has6) "ForceIP" else "ForceIPv4")
         val mtu = q["mtu"]?.toIntOrNull() ?: fb.optInt("mtu", 0)
-        if (mtu in 576..9000) settings.put("mtu", mtu)
+        settings.put("mtu", if (mtu in 576..9000) mtu else DEFAULT_WG_MTU)
         val reserved = list(q["reserved"]).map { it.toIntOrNull() ?: -1 }
         if (reserved.isNotEmpty() && reserved.all { it in 0..255 }) settings.put("reserved", JSONArray(reserved))
         else fb.optJSONArray("reserved")?.let { settings.put("reserved", it) }
         return JSONObject().put("protocol", "wireguard").put("settings", settings)
+    }
+
+    // Only a WireGuard tunnel with an IPv6 address of its own is known to carry IPv6 to its far end.
+    fun carriesIpv6(outbound: JSONObject): Boolean {
+        if (outbound.optString("protocol") != "wireguard") return false
+        val address = outbound.optJSONObject("settings")?.optJSONArray("address") ?: return false
+        return (0 until address.length()).any { address.optString(it).contains(':') }
     }
 
     fun proxyOutboundFor(protocol: String, link: String, outbound: JSONObject?): JSONObject? {
@@ -232,7 +242,9 @@ object XrayConfig {
             .put("dns", dnsConfig)
             .put("inbounds", JSONArray().put(socks))
             .put("outbounds", outbounds)
-            .put("routing", JSONObject().put("domainStrategy", "IPIfNonMatch").put("rules", rules))
+            // The VPN interface hands over addresses the phone already resolved; re-resolving each sniffed
+            // name through the tunnel (IPIfNonMatch) held every new site up for a lookup, or its timeout.
+            .put("routing", JSONObject().put("domainStrategy", "AsIs").put("rules", rules))
             .toString()
     }
 }
