@@ -129,6 +129,33 @@ describe('the live monitor', () => {
     expect(samples.slice(2).every((s) => s.rx > 0)).toBe(true);
   });
 
+  // OpenVPN: the test page failing said nothing about the tunnel; its counters (server pings every 10 s) do.
+  it('judges a counters-only connection by its counters, not the test page', async () => {
+    let rx = 0;
+    let moving = true;
+    const events: string[] = [];
+    const monitor = new LiveMonitor({
+      counters: async () => ({ rx: moving ? (rx += 100) : rx, tx: 0 }),
+      onSample: () => undefined,
+      onStall: () => events.push('stall'),
+      onRecover: () => events.push('recover'),
+      probe: { measure: async () => ({ ok: false, ms: null }), close: () => undefined },
+      tickMs: 5,
+      probeEvery: 1,
+      stallWhenQuietMs: 40,
+    });
+    monitor.start();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(events).toEqual([]);
+    moving = false;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(events).toEqual(['stall']);
+    moving = true;
+    await new Promise((r) => setTimeout(r, 40));
+    monitor.stop();
+    expect(events).toEqual(['stall', 'recover']);
+  });
+
   it('does not call it a stall while downloads keep coming in', async () => {
     let rx = 0;
     const events: string[] = [];

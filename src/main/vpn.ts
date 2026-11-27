@@ -209,6 +209,9 @@ class ManagementLink {
 
 class OpenvpnConnection implements Connection {
   readonly engine = 'openvpn' as const;
+  // "Initialization Sequence Completed" is the check: a test page on top of it kept failing working
+  // Windows connections, so OpenVPN skips it and its stalls come from its own byte counters.
+  readonly verified = true;
   private proc: EngineProcess | null = null;
   private managementPort = 0;
   private management = new ManagementLink();
@@ -554,6 +557,7 @@ export class Vpn extends EventEmitter {
     const route = this.asked ? this.tunnelRoute(connection, this.asked.settings) : null;
     const monitor = new LiveMonitor({
       probe: new HttpProbe(googleTest, null, false, route),
+      stallWhenQuietMs: connection.engine === 'openvpn' ? 40_000 : undefined,
       counters: () => connection.counters?.() ?? Promise.resolve(null),
       onSample: (sample: LiveSample) => this.emit('live', sample),
       onStall: () => {

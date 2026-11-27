@@ -17,6 +17,9 @@ export interface LiveOptions {
   tickMs?: number;
   probeEvery?: number;
   failuresForStall?: number;
+  // Set: a stall is the counters not moving for this long, and the probe only feeds the live ping.
+  // OpenVPN's server pings every 10 s, so its counters move on a working tunnel whatever the probe says.
+  stallWhenQuietMs?: number;
 }
 
 // While connected: a sample a second of the traffic each way, and every few seconds the round trip of
@@ -31,6 +34,7 @@ export class LiveMonitor {
   private failures = 0;
   private rxAtFirstFailure = 0;
   private lastRx = 0;
+  private rxMovedAt = Date.now();
   private stalled = false;
   private readonly probe: NonNullable<LiveOptions['probe']>;
   private readonly tickMs: number;
@@ -70,8 +74,10 @@ export class LiveMonitor {
         rx = Math.max(0, Math.round((c.rx - this.last.c.rx) / secs));
         tx = Math.max(0, Math.round((c.tx - this.last.c.tx) / secs));
       }
+      if (c.rx !== this.lastRx) this.rxMovedAt = now;
       this.last = { at: now, c };
       this.lastRx = c.rx;
+      this.checkQuiet(now);
     }
     if (!this.timer) return;
     const sample: LiveSample = { at: now, rx, tx };
@@ -82,12 +88,26 @@ export class LiveMonitor {
     this.opts.onSample(sample);
   }
 
+  private checkQuiet(now: number): void {
+    const quietMs = this.opts.stallWhenQuietMs;
+    if (quietMs === undefined) return;
+    const quiet = now - this.rxMovedAt >= quietMs;
+    if (quiet && !this.stalled) {
+      this.stalled = true;
+      this.opts.onStall();
+    } else if (!quiet && this.stalled) {
+      this.stalled = false;
+      this.opts.onRecover();
+    }
+  }
+
   private async runProbe(): Promise<void> {
     this.probing = true;
     try {
       const r = await this.probe.measure(5000);
       if (!this.timer) return;
       this.pendingMs = r.ok ? r.ms : null;
+      if (this.opts.stallWhenQuietMs !== undefined) return;
       if (r.ok) {
         this.failures = 0;
         if (this.stalled) {
